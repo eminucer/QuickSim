@@ -1,28 +1,28 @@
 
 import { stage } from './main.js';
 
-class Wire extends Konva.Layer {
-  constructor(){
-    super();
-    this.wires = [];
-    this.tempLineAttributes = {
-      stroke: 'black',
-      strokeWidth: 2,
-      dash: [4, 4],
-      lineCap: 'round',
-      lineJoin: 'round',
-    };
-    this.finalLineAttributes = {
-      stroke: 'black',
-      strokeWidth: 2,
-      dash: [],
-      lineCap: 'round',
-      lineJoin: 'round',
-    };
-    this.isDrawing = false;
-    this.tempLine = null;
-    this.startDot = null;
-  }
+export class Wire extends Konva.Layer {
+    constructor(){
+        super();
+        this.wires = [];
+        this.tempLineAttributes = {
+            stroke: 'black',
+            strokeWidth: 2,
+            dash: [4, 4],
+            lineCap: 'round',
+            lineJoin: 'round',
+        };
+        this.finalLineAttributes = {
+            stroke: 'black',
+            strokeWidth: 2,
+            dash: [],
+            lineCap: 'round',
+            lineJoin: 'round',
+        };
+        this.isDrawing = false;
+        this.tempLine = null;
+        this.startDot = null;
+    }
 
     startWire(dot) {
         this.isDrawing = true;
@@ -36,6 +36,7 @@ class Wire extends Konva.Layer {
 
     updateWire() {
         if (!this.isDrawing) return;
+        console.log('Updating wire in progress...');
         const pos = stage.getPointerPosition();
         // Make sure tempLine is not blocking pointer events
         this.tempLine.listening(false);
