@@ -1,5 +1,5 @@
 import { Blocks } from './Blocks.js';
-import { wire } from './Wire.js';
+import { Wire } from './Wire.js';
 import { createGrid } from './Grid.js';
 import LeftPane from './LeftPane.js';
 
@@ -23,7 +23,17 @@ const grid = createGrid({
 
 stage.add(gridLayer);
 
-const block1 = new Blocks();
+const block1 = new Blocks({    
+    x: 100,
+    y: 100,
+    width: 75,
+    height: 50,
+    text: 'Block 1',
+    fontSize: 20,
+    textColor: 'black',
+    color: 'red',
+    draggable: true,});
+
 const block2 = new Blocks({
     x: 200,
     y: 200,
@@ -36,8 +46,22 @@ const block2 = new Blocks({
     draggable: true,
 });
 
+const block3 = new Blocks({
+    x: 400,
+    y: 300,
+    width: 80,
+    height: 80,
+    text: 'Block 3',
+    fontSize: 18,
+    textColor: 'black',
+    color: 'lightcoral',
+    draggable: true,
+});
+
 stage.add(block1);
 stage.add(block2);
+stage.add(block3);
+export const wire = new Wire(stage);
 stage.add(wire);
 
 const leftPane = new LeftPane('left-pane');

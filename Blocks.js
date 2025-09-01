@@ -1,7 +1,8 @@
-import { stage } from './main.js';
-import { wire } from './Wire.js';
+import { stage, wire } from './main.js';
+import { Dot } from './Dot.js';
 
 export class Blocks extends Konva.Layer {
+    static id = 0;
     constructor(params = {
         x: 100,
         y: 100,
@@ -13,8 +14,12 @@ export class Blocks extends Konva.Layer {
         textColor: 'black',
         draggable: true,
     }) {
+
     super();
-    
+
+    this.id = Blocks.id;
+    Blocks.id ++;
+
     const shapeGroup = new Konva.Group({
         x: params.x,
         y: params.y,
@@ -34,11 +39,9 @@ export class Blocks extends Konva.Layer {
 
     shapeGroup.add(block);
 
-    const dots = [
-        { x: 0, y: params.height / 2 }, // Left center
-        { x: params.width, y: params.height / 2 }, // Right center
-        // { x: params.width / 2, y: 0 }, // Top center
-        // { x: params.width / 2, y: params.height }, // Bottom center
+    this.dots = [
+        new Dot(this, { x: 0, y: params.height / 2, radius: 5, fill: 'black' }), // Left center
+        new Dot(this, { x: params.width, y: params.height / 2, radius: 5, fill: 'black' }), // Right center
     ];
 
     this.isDrawing = false;
@@ -46,68 +49,20 @@ export class Blocks extends Konva.Layer {
     this.startDot = null;
     this.tempLine = null;
 
-    this.dots = [];
+    stage.on('pointermove', () => {
+        wire.updateWire();
+    });
+
+    stage.on('contextmenu', (e) => {
+        e.evt.preventDefault();
+        console.log('Right click detected on stage');
+        wire.cancelWire();
+        // You can add custom right-click logic for the stage here
+    });
 
 
-    for (const dotPos of dots) {
-        const dot = new Konva.Circle({
-            x: dotPos.x,
-            y: dotPos.y,
-            radius: 5,
-            fill: 'black',
-            stroke: 'white',
-            strokeWidth: 1,
-        });
-
-        dot.on('pointerover', () => {
-            dot.fill('blue');
-            dot.stroke('black');
-        });
-
-        dot.on('pointerout', () => {
-            dot.fill('black');
-            dot.stroke('white');
-        });
-
-        dot.on('mousedown touchstart', (e) => {
-            // Prevent drag from starting
-        e.cancelBubble = true;
-        });
-
-        dot.on('pointerdown', (e) => {
-            e.cancelBubble = false; // Allow event to bubble up
-            console.log('Dot clicked');
-            // Allow wire actions to apply to dots of any Blocks instance
-            if (wire.isDrawing && wire.startDot !== dot) {
-                wire.endWire(dot);
-                console.log('isDrawing is true, ending wire');
-                return;
-            } else {
-                wire.startWire(dot);
-            }
-        });
-
-        stage.on('pointermove', () => {
-            wire.updateWire();
-        });
-
-        dot.on('contextmenu', (e) => {
-            e.evt.preventDefault();
-            console.log('Right click detected on dot');
-            wire.cancelWire();
-            // You can add custom right-click logic here
-        });
-
-        stage.on('contextmenu', (e) => {
-            e.evt.preventDefault();
-            console.log('Right click detected on stage');
-            wire.cancelWire();
-            // You can add custom right-click logic for the stage here
-        });
-
-        // Defer dot interaction setup until layer is added to the stage
+    for (const dot of this.dots) {
         shapeGroup.add(dot);
-        this.dots.push(dot);
     }
 
     this.addText = (text, fontSize = 16, color = 'black') => {
@@ -137,6 +92,7 @@ export class Blocks extends Konva.Layer {
     shapeGroup.on('dragmove', (e) => {
         // Redraw wires connected to this block's dots
         console.log('Block is being dragged');
+        wire.updateWireOnDrag(this.id, this.dots);
     });
 
     this.addText(params.text, params.fontSize, params.textColor);

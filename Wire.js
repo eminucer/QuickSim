@@ -1,10 +1,10 @@
 
-import { stage } from './main.js';
-
 export class Wire extends Konva.Layer {
-    constructor(){
+    constructor(stage){
         super();
-        this.wires = [];
+        this.wires = {};
+        this.stage = stage;
+
         this.tempLineAttributes = {
             stroke: 'black',
             strokeWidth: 2,
@@ -12,6 +12,7 @@ export class Wire extends Konva.Layer {
             lineCap: 'round',
             lineJoin: 'round',
         };
+
         this.finalLineAttributes = {
             stroke: 'black',
             strokeWidth: 2,
@@ -19,16 +20,70 @@ export class Wire extends Konva.Layer {
             lineCap: 'round',
             lineJoin: 'round',
         };
+
         this.isDrawing = false;
         this.tempLine = null;
+        this.startDotPos = null;
         this.startDot = null;
+        this.startBlockId = null;
+        this.selectedLine = null;
+
+        this.on('mouseover', (e) => {
+            if (e.target instanceof Konva.Line && e.target !== this.tempLine && this.selectedLine !== e.target) {
+            e.target.stroke('orange');
+            e.target.strokeWidth(4);
+            this.batchDraw();
+            document.body.style.cursor = 'pointer';
+            }
+        });
+
+        this.on('mouseout', (e) => {
+            if (
+            e.target instanceof Konva.Line &&
+            e.target !== this.tempLine &&
+            this.selectedLine !== e.target
+            ) {
+            e.target.stroke(this.finalLineAttributes.stroke);
+            e.target.strokeWidth(this.finalLineAttributes.strokeWidth);
+            this.batchDraw();
+            document.body.style.cursor = 'default';
+            }
+        });
+
+        this.on('click', (e) => {
+            if (e.target instanceof Konva.Line && e.target !== this.tempLine) {
+            if (this.selectedLine && this.selectedLine !== e.target) {
+                this.selectedLine.stroke(this.finalLineAttributes.stroke);
+                this.selectedLine.strokeWidth(this.finalLineAttributes.strokeWidth);
+            }
+            this.selectedLine = e.target;
+            this.selectedLine.stroke('orange');
+            this.selectedLine.strokeWidth(4);
+            this.batchDraw();
+            }
+        });
+
+        // Remove highlight on stage click or right click
+        this.stage.on('mousedown touchstart contextmenu', (e) => {
+            if (
+                this.selectedLine &&
+                (!e.target || !(e.target instanceof Konva.Line))
+            ) {
+                this.selectedLine.stroke(this.finalLineAttributes.stroke);
+                this.selectedLine.strokeWidth(this.finalLineAttributes.strokeWidth);
+                this.selectedLine = null;
+                this.batchDraw();
+            }
+        });
     }
 
-    startWire(dot) {
+    startWire(dot, blockId) {
         this.isDrawing = true;
-        this.startDot = dot.getAbsolutePosition();
+        this.startDot = dot;
+        this.startDotPos = this.startDot.getAbsolutePosition();
+        this.startBlockId = blockId;
         this.tempLine = new Konva.Line({
-            points: [this.startDot.x, this.startDot.y, this.startDot.x, this.startDot.y] ,
+            points: [this.startDotPos.x, this.startDotPos.y, this.startDotPos.x, this.startDotPos.y] ,
             ...this.tempLineAttributes,
         });
         this.add(this.tempLine);
@@ -36,47 +91,46 @@ export class Wire extends Konva.Layer {
 
     updateWire() {
         if (!this.isDrawing) return;
-        console.log('Updating wire in progress...');
-        const pos = stage.getPointerPosition();
+        const pos = this.stage.getPointerPosition();
         // Make sure tempLine is not blocking pointer events
         this.tempLine.listening(false);
-        // this.tempLine.points([this.startDot.x, this.startDot.y, pos.x, pos.y]);
+        // this.tempLine.points([this.startDotPos.x, this.startDotPos.y, pos.x, pos.y]);
         // this.batchDraw();
         if (!pos) return;
-        const dx = Math.abs(pos.x - this.startDot.x);
-        const dy = Math.abs(pos.y - this.startDot.y);
+        const dx = Math.abs(pos.x - this.startDotPos.x);
+        const dy = Math.abs(pos.y - this.startDotPos.y);
 
         // Choose the axis with the larger distance for the "elbow"
         let midPoint;
         if (dx > dy) {
             // Horizontal first, then vertical
-            midPoint = { x: pos.x, y: this.startDot.y };
+            midPoint = { x: pos.x, y: this.startDotPos.y };
         } else {
             // Vertical first, then horizontal
-            midPoint = { x: this.startDot.x, y: pos.y };
+            midPoint = { x: this.startDotPos.x, y: pos.y };
         }
 
         this.tempLine.points([
-            this.startDot.x, this.startDot.y,
+            this.startDotPos.x, this.startDotPos.y,
             midPoint.x, midPoint.y,
             pos.x, pos.y
         ]);
         this.batchDraw();
     }
 
-    endWire(dot) {
+    endWire(dot, blockId) {
         if (!this.isDrawing) return;
 
         const pos = dot.getAbsolutePosition();
         
-        //this.tempLine.points([this.startDot.x, this.startDot.y, pos.x, pos.y]);
-        const midX = (this.startDot.x + pos.x) / 2;
-        const midY = (this.startDot.y + pos.y) / 2;
+        //this.tempLine.points([this.startDotPos.x, this.startDotPos.y, pos.x, pos.y]);
+        const midX = (this.startDotPos.x + pos.x) / 2;
+        const midY = (this.startDotPos.y + pos.y) / 2;
 
         // Create a path with two right angle elbows at the midpoints
         const points = [
-            this.startDot.x, this.startDot.y,
-            midX, this.startDot.y,
+            this.startDotPos.x, this.startDotPos.y,
+            midX, this.startDotPos.y,
             midX, pos.y,
             pos.x, pos.y
         ];
@@ -86,9 +140,22 @@ export class Wire extends Konva.Layer {
         this.tempLine.draw(); // Ensure the attributes are rendered
         this.tempLine.listening(true);
         this.batchDraw();
-        this.wires.push(this.tempLine);
+        if (!this.wires[blockId]) this.wires[blockId] = [];
+        const wireObj =  {
+            startDot: this.startDot,
+            endDot: dot,
+            startDotPos: this.startDotPos,
+            endDotPos: pos,
+            startBlockId: this.startBlockId,
+            endBlockId: blockId,
+            line: this.tempLine,
+        };
+        this.wires[blockId].push(wireObj);
         this.tempLine = null;
         this.isDrawing = false;
+        this.startDot.addWire(wireObj);
+        dot.addWire(wireObj);
+
     }
 
     cancelWire() {
@@ -99,22 +166,32 @@ export class Wire extends Konva.Layer {
         this.isDrawing = false;
     }
 
-    updateWireOnDrag(startDot, endDot, wireLine) {
-        const startPos = startDot.getAbsolutePosition();
-        const endPos = endDot.getAbsolutePosition();
-        const midX = (startPos.x + endPos.x) / 2;
+    updateWireOnDrag(blockId, dots) {
+        dots.forEach(dot => {
+            if (!dot.wires) return;
+            dot.wires.forEach(wireObj => {
+                // Update the start or end dot depending on which block this is
+                let start, end;
+                if (wireObj.startBlockId === blockId) {
+                    wireObj.startDotPos = dot.getAbsolutePosition();
+                }
+                if (wireObj.endBlockId === blockId) {
+                    wireObj.endDotPos = dot.getAbsolutePosition();
+                }
+                start = wireObj.startDotPos;
+                end = wireObj.endDotPos;
+                // Recalculate midpoints for elbow wire
+                const midX = (start.x + end.x) / 2;
+                const points = [
+                    start.x, start.y,
+                    midX, start.y,
+                    midX, end.y,
+                    end.x, end.y
+                ];
+                wireObj.line.points(points);
+                if (wireObj.line.batchDraw) wireObj.line.batchDraw();
+            });
+        });
 
-        const points = [
-            startPos.x, startPos.y,
-            midX, startPos.y,
-            midX, endPos.y,
-            endPos.x, endPos.y
-        ];
-
-        wireLine.points(points);
-        wireLine.batchDraw && wireLine.batchDraw();
     }
 }
-
-export const wire = new Wire();
-
