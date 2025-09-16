@@ -1,59 +1,66 @@
 
 import { Blocks } from './Blocks.js';
+import { blockTypes } from './BlockTypes.js';
 
 class LeftPane {
-    constructor(containerId) {
+    constructor(hiddenStageId) {
+
         this.stage = new Konva.Stage({
-            container: containerId,
+            container: hiddenStageId,
             width: 200,
-            height: 600,
+            height: 200,
         });
 
-        const layer = new Konva.Layer();
+        const hiddenLayer = new Konva.Layer();
+        this.stage.add(hiddenLayer);
 
-        const block1 = new Blocks({
-            x: 50,
-            y: 60,
-            width: 70,
-            height: 50,
-            text: 'Block 1',
-            fontSize: 14,
-            textColor: 'black',
-            color: 'lightgreen',
-            draggable: false,
+        let blocks = [];
+
+        for (const type in blockTypes) {
+            if (blockTypes.hasOwnProperty(type)) {
+                const block = new Blocks(blockTypes[type]);
+                hiddenLayer.add(block);
+                blocks.push(block);
+            }
+        }
+
+        hiddenLayer.draw();
+
+        this.stage.add(hiddenLayer);
+
+        //blocks.push(block1, block2, block3, block4, block5, block6, block7);
+        
+        blocks.forEach((block, index) => {
+            const box = block.getClientRect({ relativeTo: block.getLayer() });
+            console.log('Adding block to palette:', block);
+            block.toDataURL({
+                pixelRatio: 2,
+                x: box.x,
+                y: box.y,
+                width: box.width,
+                height: box.height,
+                callback: (url) => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = "palette-item";
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.draggable = true;
+                    img.className = "palette-img";
+                    img.dataset.type = block.type;
+                    // force display at *original logical size*
+                    img.style.width = `${box.width}px`;
+                    img.style.height = `${box.height}px`;
+                    const text = document.createElement('div');
+                    text.style.textAlign = 'center';
+                    text.style.fontSize = '12px';
+                    text.innerText = block.type;
+                    wrapper.appendChild(img);
+                    wrapper.appendChild(text);
+                    document.getElementById('palette').appendChild(wrapper);
+                }
+            });  
         });
-
-        const block2 = new Blocks({
-            x: 50,
-            y: 160,
-            width: 70,
-            height: 50,
-            text: 'Block 2',
-            fontSize: 14,
-            textColor: 'black',
-            color: 'lightblue',
-            draggable: false,
-        });
-
-        const block3 = new Blocks({
-            x: 50,
-            y: 260,
-            width: 70,
-            height: 50,
-            text: 'Block 3',
-            fontSize: 14,
-            textColor: 'black',
-            color: 'orange',
-            draggable: false,
-        });
-
-        // layer.add(block1);
-        // layer.add(block2);
-        // layer.add(block3);
-
-        this.stage.add(block1);
-        this.stage.add(block2);
-        this.stage.add(block3);
+     
     }
 }
 

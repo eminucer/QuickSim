@@ -4,13 +4,74 @@
     <meta charset="UTF-8">
     <script src="https://unpkg.com/konva@9/konva.min.js"></script>
     <title>Quick Sim</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #app {
+            display: flex;
+            font-family: sans-serif;
+        }
+        #palette {
+            width: 150px;
+            height: 100vh;
+            justify-content: center;
+            align-items: center;
+            background: #f0f0f0;
+            border-right: 1px solid #ccc;
+            padding: 10px;
+            gap: 3px;
+        }
+        .palette-item {
+            width: 150px;      /* fixed row width */
+            height: 70px;      /* fixed row height */
+            margin: 2px auto;  /* space between rows */
+            display: flex;
+            justify-content: center; /* center horizontally */
+            align-items: center;     /* center vertically */
+            /*border: 1px solid #ddd;  /* optional outline like Node-RED */
+            /* background: #fff; */
+            border-radius: 6px;
+            flex-direction: column;
+            gap: 0px;              /* space between items */
+        }
+        .palette-img {
+            display: block;
+            margin: 0;
+            /* background-color: bisque; */
+            image-rendering: auto; /* smooth scaling */
+        }
+        #workspace {
+            flex: 1;
+            border: 1px solid #ccc;
+        }
+
+        /*hide the template stage */
+        #hidden-stage {
+            display: none;
+        }
+    </style>
 </head>
 <body>
 
-    <div style="display: flex; width: 100%;">
-        <div id="left-pane" style="flex: 1;"></div>
-        <div id="container" style="flex: 1;"></div>
+    <div id="app">
+        <div id="palette"> 
+            <div style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 30px;  /* needed for vertical centering */
+            ">
+                <b>Library</b>
+            </div>
+        </div>
+        <div id="workspace"></div>
     </div>
+
+    <!-- hidden stage only for rendering templates -->
+    <div id="hidden-stage"></div>
 
     <script type="module" src="main.js"></script>
 </body>

@@ -50,6 +50,7 @@ export class Wire extends Konva.Layer {
             }
         });
 
+        // Highlight line on click
         this.on('click', (e) => {
             if (e.target instanceof Konva.Line && e.target !== this.tempLine) {
             if (this.selectedLine && this.selectedLine !== e.target) {
@@ -60,6 +61,21 @@ export class Wire extends Konva.Layer {
             this.selectedLine.stroke('orange');
             this.selectedLine.strokeWidth(4);
             this.batchDraw();
+            }
+        });
+
+        // Delete selected line on Delete or Backspace key press
+        window.addEventListener('keydown', (e) => {
+            if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedLine) {
+                console.log('Deleting selected line');
+                // Remove the selected line from the layer
+                this.selectedLine.destroy();
+                this.selectedLine = null;
+                this.batchDraw();
+                // Optionally, remove from wires array
+                Object.keys(this.wires).forEach(blockId => {
+                    this.wires[blockId] = this.wires[blockId].filter(wireObj => wireObj.line !== this.selectedLine);
+                });
             }
         });
 

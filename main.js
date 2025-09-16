@@ -2,17 +2,20 @@ import { Blocks } from './Blocks.js';
 import { Wire } from './Wire.js';
 import { createGrid } from './Grid.js';
 import LeftPane from './LeftPane.js';
+import {blockTypes} from './BlockTypes.js';
 
 const width = window.innerWidth;
 const height = window.innerHeight;
 
 const stage = new Konva.Stage({
-    container: 'container', // Make sure you have a <div id="container"></div> in your HTML
+    container: 'workspace', // Make sure you have a <div id="container"></div> in your HTML
     width,
     height,
 });
 
 const gridLayer = new Konva.Layer();
+const blockLayer = new Konva.Layer();
+
 const grid = createGrid({
     width,
     height,
@@ -21,49 +24,41 @@ const grid = createGrid({
     layer: gridLayer,
 });
 
+const leftPane = new LeftPane('hidden-stage');
+
 stage.add(gridLayer);
+stage.add(blockLayer);
 
-const block1 = new Blocks({    
-    x: 100,
-    y: 100,
-    width: 75,
-    height: 50,
-    text: 'Block 1',
-    fontSize: 20,
-    textColor: 'black',
-    color: 'red',
-    draggable: true,});
+// track drag
+let dragType = null;
 
-const block2 = new Blocks({
-    x: 200,
-    y: 200,
-    width: 100,
-    height: 100,
-    text: 'Block 2',
-    fontSize: 20,
-    textColor: 'black',
-    color: 'lightgreen',
-    draggable: true,
+document.getElementById('palette').addEventListener('dragstart', (e) => {
+    dragType = e.target.dataset.type;
 });
 
-const block3 = new Blocks({
-    x: 400,
-    y: 300,
-    width: 80,
-    height: 80,
-    text: 'Block 3',
-    fontSize: 18,
-    textColor: 'black',
-    color: 'lightcoral',
-    draggable: true,
+const workspaceDiv = document.getElementById('workspace');
+workspaceDiv.addEventListener('dragover', (e) => e.preventDefault());
+
+workspaceDiv.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (!dragType) return;
+
+    const rect = workspaceDiv.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    let blockType = blockTypes[dragType];
+    blockType.x = x;
+    blockType.y = y;
+
+    const block = new Blocks(blockType);
+
+    blockLayer.add(block);
+
+    dragType = null;
 });
 
-stage.add(block1);
-stage.add(block2);
-stage.add(block3);
 export const wire = new Wire(stage);
 stage.add(wire);
-
-const leftPane = new LeftPane('left-pane');
 
 export {stage};
