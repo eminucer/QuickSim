@@ -36,11 +36,14 @@ export class Dot extends Konva.Circle {
             e.cancelBubble = false; // Allow event to bubble up
             console.log('Dot clicked');
             // Allow wire actions to apply to dots of any Blocks instance
+            console.log('wire.isDrawing:', wire.isDrawing);
+            console.log('wire.startDot:', wire.startDot !== this ? 'not this dot' : 'this dot');
             if (wire.isDrawing && wire.startDot !== this) {
                 wire.endWire(this, this.objOn.id);
                 console.log('isDrawing is true, ending wire');
                 return;
             } else {
+                console.log('Starting new wire from dot');
                 wire.startWire(this, this.objOn.id);
             }
         });
