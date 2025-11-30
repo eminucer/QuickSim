@@ -18,6 +18,7 @@ class LeftPane {
 
         for (const type in blockTypes) {
             if (blockTypes.hasOwnProperty(type)) {
+                console.log('Creating block of type:', type);
                 const block = new Blocks(blockTypes[type]);
                 hiddenLayer.add(block);
                 blocks.push(block);
@@ -37,7 +38,7 @@ class LeftPane {
                 pixelRatio: 2,
                 x: box.x,
                 y: box.y,
-                width: box.width,
+                width: box.width + 10,
                 height: box.height,
                 callback: (url) => {
                     const wrapper = document.createElement('div');
@@ -46,14 +47,14 @@ class LeftPane {
                     img.src = url;
                     img.draggable = true;
                     img.className = "palette-img";
-                    img.dataset.type = block.type;
+                    img.dataset.type = block.name;
                     // force display at *original logical size*
                     img.style.width = `${box.width}px`;
                     img.style.height = `${box.height}px`;
                     const text = document.createElement('div');
                     text.style.textAlign = 'center';
                     text.style.fontSize = '12px';
-                    text.innerText = block.type;
+                    text.innerText = block.name;
                     wrapper.appendChild(img);
                     wrapper.appendChild(text);
                     document.getElementById('palette').appendChild(wrapper);

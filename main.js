@@ -48,6 +48,7 @@ workspaceDiv.addEventListener('drop', (e) => {
     const y = e.clientY - rect.top;
 
     let blockType = blockTypes[dragType];
+    console.log(blockType);
     blockType.x = x;
     blockType.y = y;
 

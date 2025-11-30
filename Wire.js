@@ -242,8 +242,7 @@ export class Wire extends Konva.Layer {
     endWire(dot, blockId) {
         if (!this.isDrawing) return;
 
-        const pos = dot.getAbsolutePosition();
-        
+        let pos = dot.getAbsolutePosition();
         //this.tempLine.points([this.startDotPos.x, this.startDotPos.y, pos.x, pos.y]);
         const midX = (this.startDotPos.x + pos.x) / 2;
         const midY = (this.startDotPos.y + pos.y) / 2;
