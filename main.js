@@ -62,4 +62,15 @@ workspaceDiv.addEventListener('drop', (e) => {
 export const wire = new Wire(stage);
 stage.add(wire);
 
+// Wire handling
+// TODO: Why this code here?
+stage.on('pointermove', () => wire.updateWire());
+stage.on('contextmenu', (e) => {
+    if(wire.isBranching) {
+        return;
+    }
+    e.evt.preventDefault();
+    wire.cancelWire();
+});
+
 export {stage};

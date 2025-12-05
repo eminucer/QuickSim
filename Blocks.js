@@ -113,12 +113,6 @@ export class Blocks extends Konva.Group {
         });
 
         this.block.getParent().add(this.textNode);
-        // Wire handling
-        stage.on('pointermove', () => wire.updateWire());
-        stage.on('contextmenu', (e) => {
-            e.evt.preventDefault();
-            wire.cancelWire();
-        });
 
         this.on('dragmove', () => {
             wire.updateWireOnDrag(this.id, this.ports);

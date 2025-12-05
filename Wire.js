@@ -34,6 +34,8 @@ export class Wire extends Konva.Layer {
         this.rewireEnd = null; // 'start' or 'end'
         this.rewireTempLine = null;
 
+        this.isBranching = false;
+
         this.on('mouseover', (e) => {
             if (e.target instanceof Konva.Line && e.target !== this.tempLine && e.target !== this.rewireTempLine && this.selectedLine !== e.target) {
                 e.target.stroke('orange');
@@ -99,57 +101,71 @@ export class Wire extends Konva.Layer {
             }
         });
 
+        // // Right mouse down on a wire to start rewire
+        // this.on('contextmenu', (e) => {
+        //         e.evt.preventDefault();
+        //         if (e.target instanceof Konva.Line && e.target !== this.tempLine) {
+        //             if (!this.rewireActive) {
+        //                 const wireObj = this.findWireObjByLine(e.target);
+        //                 if (!wireObj) return;
+        //                 const mousePos = this.stage.getPointerPosition();
+        //                 const dot = new Dot(this, { x: mousePos.x, y: mousePos.y, radius: 5, fill: 'black' });
+        //                 this.add(dot); // Just to have a reference, not displayed
+        //                 this.rewireWireObj = wireObj;
+        //                 this.rewireActive = true;
+        //                 this.rewireStartPoint = { x: mousePos.x, y: mousePos.y };
+        //                 this.rewireTempLine = new Konva.Line({
+        //                     points: [mousePos.x, mousePos.y, mousePos.x, mousePos.y],
+        //                     ...this.tempLineAttributes,
+        //                 });
+        //                 this.add(this.rewireTempLine);
+        //                 this.batchDraw();
+        //                 console.log('Started rewiring');
+        //             } else {
+        //                 // If already drawing, right-click cancels
+        //                 if (this.rewireTempLine) {
+        //                     this.rewireTempLine.destroy();
+        //                     this.rewireTempLine = null;
+        //                 }
+        //                 this.rewireWireObj = null;
+        //                 this.rewireActive = false;
+        //                 this.rewireStartPoint = null;
+        //                 this.batchDraw();
+        //                 console.log('Cancelled rewiring');
+        //             }
+        //         }
+        // });
+
         // Right mouse down on a wire to start rewire
         this.on('contextmenu', (e) => {
                 e.evt.preventDefault();
-                if (e.target instanceof Konva.Line && e.target !== this.tempLine) {
-                    if (!this.rewireActive) {
-                        const wireObj = this.findWireObjByLine(e.target);
-                        if (!wireObj) return;
-                        const mousePos = this.stage.getPointerPosition();
-                        const dot = new Dot(this, { x: mousePos.x, y: mousePos.y, radius: 5, fill: 'black' });
-                        this.add(dot); // Just to have a reference, not displayed
-                        this.rewireWireObj = wireObj;
-                        this.rewireActive = true;
-                        this.rewireStartPoint = { x: mousePos.x, y: mousePos.y };
-                        this.rewireTempLine = new Konva.Line({
-                            points: [mousePos.x, mousePos.y, mousePos.x, mousePos.y],
-                            ...this.tempLineAttributes,
-                        });
-                        this.add(this.rewireTempLine);
-                        this.batchDraw();
-                        console.log('Started rewiring');
-                    } else {
-                        // If already drawing, right-click cancels
-                        if (this.rewireTempLine) {
-                            this.rewireTempLine.destroy();
-                            this.rewireTempLine = null;
-                        }
-                        this.rewireWireObj = null;
-                        this.rewireActive = false;
-                        this.rewireStartPoint = null;
-                        this.batchDraw();
-                        console.log('Cancelled rewiring');
-                    }
+                if (e.target instanceof Konva.Line) {
+                    console.log('Right click on line to start rewiring');
+                    const mousePos = this.stage.getPointerPosition();
+                    const dot = new Dot(this, { x: mousePos.x, y: mousePos.y, radius: 5, fill: 'black' });
+                    this.isBranching = true;
+                    this.add(dot); // Just to have a reference, not displayed
+                    this.batchDraw();
+                    this.startWire(dot, dot.objOn.id);
                 }
         });
 
         // Mouse move to update temp rewire line
-        this.stage.on('mousemove', (e) => {
-            if (this.rewireActive && this.rewireTempLine && this.rewireStartPoint) {
-                const mousePos = this.stage.getPointerPosition();
-                const start = this.rewireStartPoint;
-                const midX = mousePos.x;
-                const midY = start.y;
-                this.rewireTempLine.points([
-                    start.x, start.y,
-                    midX, midY,
-                    mousePos.x, mousePos.y
-                ]);
-                this.batchDraw();
-                console.log('Updating rewire line');
-            }
-        });
+        // this.stage.on('mousemove', (e) => {
+        //     if (this.rewireActive && this.rewireTempLine && this.rewireStartPoint) {
+        //         const mousePos = this.stage.getPointerPosition();
+        //         const start = this.rewireStartPoint;
+        //         const midX = mousePos.x;
+        //         const midY = start.y;
+        //         this.rewireTempLine.points([
+        //             start.x, start.y,
+        //             midX, midY,
+        //             mousePos.x, mousePos.y
+        //         ]);
+        //         this.batchDraw();
+        //         console.log('Updating rewire line');
+        //     }
+        // });
 
         // Mouse up: check if over a dot, then rewire
         this.stage.on('mousedown', (e) => {
@@ -208,9 +224,11 @@ export class Wire extends Konva.Layer {
             ...this.tempLineAttributes,
         });
         this.add(this.tempLine);
+        console.log('Started wire: ' + this.isDrawing);
     }
 
     updateWire() {
+        console.log('Updating wire: ' + this.isDrawing);
         if (!this.isDrawing) return;
         const pos = this.stage.getPointerPosition();
         // Make sure tempLine is not blocking pointer events
@@ -240,6 +258,7 @@ export class Wire extends Konva.Layer {
     }
 
     endWire(dot, blockId) {
+        console.log('Ending wire');
         if (!this.isDrawing) return;
 
         let pos = dot.getAbsolutePosition();
@@ -273,6 +292,7 @@ export class Wire extends Konva.Layer {
         this.wires[blockId].push(wireObj);
         this.tempLine = null;
         this.isDrawing = false;
+        this.isBranching = false;
         this.startDot.addWire(wireObj);
         dot.addWire(wireObj);
 

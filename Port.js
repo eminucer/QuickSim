@@ -74,6 +74,7 @@ export class Port extends Konva.Shape {
 
         this.on('pointerdown', (e) => {
             e.cancelBubble = false;
+            console.log(wire.isDrawing, wire.startDot !== this);
             if (wire.isDrawing && wire.startDot !== this) {
                 wire.endWire(this, this.objOn.id);
                 return;
