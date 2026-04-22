@@ -108,11 +108,30 @@ export class WireSegmentRenderer extends Konva.Group {
         const worldPos = this.stage.getWorldPointerPosition();
         if (!worldPos) return;
         this.wire.listening(false);
-        this.wire.points(this._getWirePoints(
+        this.wire.points(this._getTempWirePoints(
             WireSegmentRenderer.startPointPos, worldPos,
-            WireSegmentRenderer.startPoint, null,
+            WireSegmentRenderer.startPoint,
         ));
         if (this.getLayer()) this.getLayer().batchDraw();
+    }
+
+    /**
+     * Simple stub + single-elbow preview for the temp wire.
+     * No obstacle avoidance — just exit the port, then one 90° turn to the cursor.
+     */
+    _getTempWirePoints(startPos, endPos, startCP) {
+        const sx = startPos.x, sy = startPos.y;
+        const ex = endPos.x,   ey = endPos.y;
+        const STUB = 24;
+
+        const startDir = this._portExitDir(startCP, endPos);
+        const [ax, ay] = this._stubEnd(sx, sy, startDir, STUB);
+
+        const startH = startDir === 'right' || startDir === 'left';
+        // One elbow: if exiting horizontally go to cursor x then y, else cursor y then x
+        const inner = startH ? [ex, ay] : [ax, ey];
+
+        return this._cleanPath([sx, sy, ax, ay, ...inner, ex, ey]);
     }
 
     /* ═══════════════════════════════════════
