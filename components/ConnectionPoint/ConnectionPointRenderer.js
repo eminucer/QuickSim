@@ -15,7 +15,7 @@ export class ConnectionPointRenderer extends Konva.Group {
     _bindEvents() {
         this.cp.on('mouseover', () => this._onHover(true));
         this.cp.on('mouseout',  () => this._onHover(false));
-        this.cp.on('pointerdown', e => {
+        this.cp.on('mousedown', e => {
             e.cancelBubble = true; // prevent block click-select
             this._onPointerDown();
         });
