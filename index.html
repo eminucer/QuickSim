@@ -3,76 +3,404 @@
 <head>
     <meta charset="UTF-8">
     <script src="https://unpkg.com/konva@9/konva.min.js"></script>
-    <title>Quick Sim</title>
+    <title>QuickSim</title>
     <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --sidebar-width: 196px;
+            --sidebar-bg: #1a2035;
+            --sidebar-header-bg: #131926;
+            --sidebar-border: #2a3350;
+            --category-color: #5a7099;
+            --item-bg: #1f2a40;
+            --item-hover-bg: #273452;
+            --item-border: #2e3d5a;
+            --item-text: #c8d4e8;
+            --item-subtext: #7b8fad;
+            --accent: #4a7cf7;
+            --accent-hover: #5d8bf9;
+            --canvas-bg: #f4f6fa;
+            --dot-color: rgba(100, 116, 155, 0.35);
+            --toolbar-bg: #ffffff;
+            --toolbar-border: #e2e8f0;
+            --toolbar-text: #475569;
+            --hint-bg: rgba(255,255,255,0.85);
+        }
+
         body {
             margin: 0;
             padding: 0;
             overflow: hidden;
-        }
-        #app {
-            display: flex;
-            font-family: sans-serif;
-        }
-        #palette {
-            width: 150px;
-            height: 100vh;
-            justify-content: center;
-            align-items: center;
-            background: #f0f0f0;
-            border-right: 1px solid #ccc;
-            padding: 10px;
-            gap: 3px;
-        }
-        .palette-item {
-            width: 150px;      /* fixed row width */
-            height: 70px;      /* fixed row height */
-            margin: 2px auto;  /* space between rows */
-            display: flex;
-            justify-content: center; /* center horizontally */
-            align-items: center;     /* center vertically */
-            /*border: 1px solid #ddd;  /* optional outline like Node-RED */
-            /* background: #fff; */
-            border-radius: 6px;
-            flex-direction: column;
-            gap: 0px;              /* space between items */
-        }
-        .palette-img {
-            display: block;
-            margin: 0;
-            /* background-color: bisque; */
-            image-rendering: auto; /* smooth scaling */
-        }
-        #workspace {
-            flex: 1;
-            border: 1px solid #ccc;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--canvas-bg);
         }
 
-        /*hide the template stage */
+        #app {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* ── Sidebar ── */
+        #sidebar {
+            width: var(--sidebar-width);
+            min-width: var(--sidebar-width);
+            height: 100vh;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--sidebar-border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #sidebar-header {
+            background: var(--sidebar-header-bg);
+            border-bottom: 1px solid var(--sidebar-border);
+            padding: 14px 16px 13px;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            flex-shrink: 0;
+        }
+
+        #sidebar-header .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: var(--accent);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.5px;
+            flex-shrink: 0;
+        }
+
+        #sidebar-header .app-name {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: #e2eaf8;
+            letter-spacing: 0.2px;
+        }
+
+        #sidebar-header .app-version {
+            font-size: 10px;
+            color: var(--category-color);
+            margin-left: auto;
+            font-weight: 500;
+        }
+
+        /* ── Palette ── */
+        #palette {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 8px 0 16px;
+        }
+
+        #palette::-webkit-scrollbar { width: 4px; }
+        #palette::-webkit-scrollbar-track { background: transparent; }
+        #palette::-webkit-scrollbar-thumb {
+            background: #2e3d5a;
+            border-radius: 2px;
+        }
+
+        .palette-category {
+            margin-bottom: 4px;
+        }
+
+        .category-header {
+            padding: 8px 14px 5px;
+            font-size: 9.5px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: var(--category-color);
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .category-header::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--sidebar-border);
+        }
+
+        .palette-items {
+            padding: 2px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .palette-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 9px;
+            border-radius: 7px;
+            border: 1px solid transparent;
+            cursor: grab;
+            transition: background 0.12s, border-color 0.12s;
+        }
+
+        .palette-item:hover {
+            background: var(--item-hover-bg);
+            border-color: var(--item-border);
+        }
+
+        .palette-item:active {
+            cursor: grabbing;
+        }
+
+        .palette-thumb {
+            width: 44px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            border-radius: 5px;
+            background: rgba(255,255,255,0.04);
+        }
+
+        .palette-thumb img {
+            max-width: 44px;
+            max-height: 34px;
+            object-fit: contain;
+            image-rendering: auto;
+        }
+
+        .palette-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .palette-name {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--item-text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .palette-type {
+            font-size: 10px;
+            color: var(--item-subtext);
+            margin-top: 1px;
+        }
+
+        /* ── Workspace area ── */
+        #workspace-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* ── Canvas toolbar ── */
+        #toolbar {
+            height: 40px;
+            background: var(--toolbar-bg);
+            border-bottom: 1px solid var(--toolbar-border);
+            display: flex;
+            align-items: center;
+            padding: 0 14px;
+            gap: 6px;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .toolbar-btn {
+            height: 26px;
+            padding: 0 10px;
+            border-radius: 5px;
+            border: 1px solid var(--toolbar-border);
+            background: #fff;
+            color: var(--toolbar-text);
+            font-size: 11.5px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: background 0.1s, border-color 0.1s;
+        }
+
+        .toolbar-btn:hover {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+        }
+
+        .toolbar-sep {
+            width: 1px;
+            height: 18px;
+            background: var(--toolbar-border);
+            margin: 0 2px;
+        }
+
+        .toolbar-hint {
+            margin-left: auto;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+
+        /* ── Canvas / Stage ── */
+        #workspace {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background-color: var(--canvas-bg);
+            background-image: radial-gradient(circle, var(--dot-color) 1.2px, transparent 1.2px);
+            background-size: 24px 24px;
+            background-position: 0 0;
+        }
+
+        /* ── Status bar ── */
+        #statusbar {
+            height: 24px;
+            background: #f8fafc;
+            border-top: 1px solid var(--toolbar-border);
+            display: flex;
+            align-items: center;
+            padding: 0 14px;
+            gap: 16px;
+            flex-shrink: 0;
+        }
+
+        .status-item {
+            font-size: 10.5px;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .status-key {
+            display: inline-block;
+            background: #e2e8f0;
+            border-radius: 3px;
+            padding: 0 4px;
+            font-size: 9.5px;
+            color: #64748b;
+            font-weight: 600;
+        }
+
+        /* ── Hidden stage for palette renders ── */
         #hidden-stage {
+            position: absolute;
+            left: -9999px;
+            top: -9999px;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        /* ── Context menus ── */
+        #context-menu,
+        #junction-context-menu {
+            position: fixed;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+            padding: 4px;
+            min-width: 140px;
+            z-index: 9999;
             display: none;
         }
+
+        #context-menu.visible,
+        #junction-context-menu.visible { display: block; }
+
+        .ctx-item {
+            padding: 7px 12px;
+            border-radius: 5px;
+            font-size: 12.5px;
+            color: #334155;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ctx-item:hover { background: #f1f5f9; }
+        .ctx-item.danger { color: #dc2626; }
+        .ctx-item.danger:hover { background: #fef2f2; }
     </style>
 </head>
 <body>
 
     <div id="app">
-        <div id="palette"> 
-            <div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 30px;  /* needed for vertical centering */
-            ">
-                <b>Library</b>
+        <!-- Sidebar / Library -->
+        <div id="sidebar">
+            <div id="sidebar-header">
+                <div class="logo-icon">QS</div>
+                <span class="app-name">QuickSim</span>
+                <span class="app-version">v0.1</span>
+            </div>
+            <div id="palette">
+                <!-- Populated by main2.js -->
             </div>
         </div>
-        <div id="workspace"></div>
+
+        <!-- Main workspace -->
+        <div id="workspace-container">
+            <div id="toolbar">
+                <button class="toolbar-btn" id="btn-fit">Fit to Screen</button>
+                <button class="toolbar-btn" id="btn-reset-zoom">100%</button>
+                <div class="toolbar-sep"></div>
+                <button class="toolbar-btn" id="btn-rotate">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Rotate 90°
+                </button>
+                <button class="toolbar-btn" id="btn-delete">Delete Selected</button>
+                <span class="toolbar-hint">
+                    Drag blocks from the library · Click to select · Delete to remove
+                </span>
+            </div>
+            <div id="workspace"></div>
+            <div id="statusbar">
+                <span class="status-item"><span class="status-key">Space</span>+drag to pan</span>
+                <span class="status-item"><span class="status-key">Scroll</span>to zoom</span>
+                <span class="status-item"><span class="status-key">Del</span>delete selected</span>
+                <span class="status-item"><span class="status-key">Esc</span>cancel wire</span>
+                <span class="status-item"><span class="status-key">R</span>rotate block</span>
+                <span class="status-item"><span class="status-key">RClick</span>on wire to branch</span>
+            </div>
+        </div>
     </div>
 
-    <!-- hidden stage only for rendering templates -->
+    <!-- Hidden Konva stage for palette thumbnail rendering -->
     <div id="hidden-stage"></div>
 
-    <script type="module" src="main.js"></script>
+    <!-- Block context menu -->
+    <div id="context-menu">
+        <div class="ctx-item" id="ctx-rotate">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Rotate 90°
+        </div>
+        <div class="ctx-item danger" id="ctx-delete">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Delete Block
+        </div>
+    </div>
+
+    <!-- Junction context menu -->
+    <div id="junction-context-menu">
+        <div class="ctx-item danger" id="ctx-junction-delete">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Delete Branch Point
+        </div>
+    </div>
+
+    <script type="module" src="main2.js"></script>
 </body>
 </html>

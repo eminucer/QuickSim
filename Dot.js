@@ -14,7 +14,8 @@ export class Dot extends Konva.Circle {
 
         this.objOn = objOn;
         this.wires = [];
-
+        this.isConnected = false;
+        
         this.on('mouseover', () => {
             document.body.style.cursor = 'pointer';
             this.fill('blue');

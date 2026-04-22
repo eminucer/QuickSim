@@ -18,6 +18,7 @@ export class Port extends Konva.Shape {
         });
 
         this.objOn = objOn;
+        this.isConnected = false;
         this.wires = [];
         this.arrowSize = params.arrowSize || params.size || params.arrowSize;
         this.type = params.type || 'input';
@@ -76,10 +77,20 @@ export class Port extends Konva.Shape {
             e.cancelBubble = false;
             console.log(wire.isDrawing, wire.startDot !== this);
             if (wire.isDrawing && wire.startDot !== this) {
-                wire.endWire(this, this.objOn.id);
-                return;
+                if (!this.isConnected){
+                    wire.endWire(this, this.objOn.id);
+                }
+                else {
+                    wire.cancelWire();
+                    console.log('This port is already connected');
+                }
             } else {
-                wire.startWire(this, this.objOn.id);
+                if(!this.isConnected){
+                    wire.startWire(this, this.objOn.id);
+                }
+                else {
+                    console.log('This port is already connected');
+                }
             }
         });
 

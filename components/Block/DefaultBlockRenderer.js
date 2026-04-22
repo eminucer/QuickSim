@@ -1,0 +1,269 @@
+export class DefaultBlockRenderer extends Konva.Group {
+    constructor(owner) {
+        super({ draggable: true });
+        this.owner        = owner;
+        this.stage        = owner.stage;
+        this.width        = owner.size.width;
+        this.height       = owner.size.height;
+        this.color        = owner.color;
+        this.strokeColor  = owner.strokeColor || '#374151';
+        this.block        = null;
+        this.label        = null;
+        this.pos          = owner.pos;
+        this._selRect     = null;
+        this._bindEvents();
+    }
+
+    _bindEvents() {
+        this.on('dragstart', () => {
+            this._prevDragPos = { x: this.x(), y: this.y() };
+        });
+        this.on('dragmove', () => {
+            const dx = this.x() - this._prevDragPos.x;
+            const dy = this.y() - this._prevDragPos.y;
+            this._prevDragPos = { x: this.x(), y: this.y() };
+
+            // Build sets of selected items moving together
+            const selectedBlocks = new Set(
+                this.stage.selectedItems.filter(item => item.inputPorts)
+            );
+            selectedBlocks.add(this.owner);
+
+            const selectedJunctions = new Set(
+                this.stage.selectedItems.filter(item => item.params?.type === 'cp')
+            );
+
+            // Move other selected blocks
+            selectedBlocks.forEach(block => {
+                if (block === this.owner) return;
+                block.renderer.x(block.renderer.x() + dx);
+                block.renderer.y(block.renderer.y() + dy);
+            });
+
+            // Move selected junctions (update both the Konva node and the cached _pos)
+            selectedJunctions.forEach(junction => {
+                junction._pos.x += dx;
+                junction._pos.y += dy;
+                junction.renderer.x(junction.renderer.x() + dx);
+                junction.renderer.y(junction.renderer.y() + dy);
+            });
+
+            // Returns true if a CP's owner (block or junction itself) is in the selection
+            const inSelection = cp => {
+                if (!cp) return false;
+                if (cp.params?.type === 'cp') return selectedJunctions.has(cp);
+                return selectedBlocks.has(cp.owner);
+            };
+
+            // Update wires: translate internal wires rigidly, re-route boundary wires
+            const processedWires     = new Set();
+            const processedJunctions = new Set();
+
+            const processWire = (wire, fromCP) => {
+                if (processedWires.has(wire)) return;
+                processedWires.add(wire);
+
+                const otherCP = wire.cps.start === fromCP ? wire.cps.end : wire.cps.start;
+
+                if (inSelection(otherCP)) {
+                    // Both ends inside the selection → shift all points rigidly
+                    wire.renderer._pts.forEach(p => { p.x += dx; p.y += dy; });
+                    if (wire.renderer.wire) {
+                        wire.renderer.wire.points(
+                            wire.renderer._toFlatPoints(wire.renderer._pts)
+                        );
+                    }
+                } else {
+                    // One end crosses the boundary → re-anchor from the selected end
+                    wire.updateOnDrag(fromCP);
+
+                    // If the non-selected end is a junction, re-route its other wires
+                    // so the full fan stays connected
+                    if (otherCP?.params?.type === 'cp' && !processedJunctions.has(otherCP)) {
+                        processedJunctions.add(otherCP);
+                        otherCP.wires?.forEach(w => {
+                            if (!processedWires.has(w)) w?.updateOnDrag(otherCP);
+                        });
+                    }
+                }
+            };
+
+            // Process wires from selected blocks' ports
+            selectedBlocks.forEach(block => {
+                [...block.inputPorts, ...block.outputPorts].forEach(port => {
+                    if (port.wire) processWire(port.wire, port);
+                });
+            });
+
+            // Process wires from selected junctions
+            selectedJunctions.forEach(junction => {
+                junction.wires.forEach(wire => processWire(wire, junction));
+            });
+
+            // Keep selection bounds rect in sync
+            if (this.stage._updateSelectionBounds) this.stage._updateSelectionBounds();
+
+            if (this.stage.wireLayer) this.stage.wireLayer.batchDraw();
+            if (this.getLayer()) this.getLayer().batchDraw();
+        });
+        this.on('mouseover', () => {
+            if (!this._isManagedByParentHover)
+                document.body.style.cursor = 'move';
+        });
+        this.on('mouseout', () => {
+            document.body.style.cursor = 'default';
+        });
+        this.on('click', e => {
+            // Don't re-select if a port arrow bubbled the click up
+            if (e.target && e.target._isPort) return;
+            this.owner.select();
+        });
+        this.on('contextmenu', e => {
+            e.evt.preventDefault();
+            document.dispatchEvent(new CustomEvent('block-contextmenu', {
+                detail: { block: this.owner, x: e.evt.clientX, y: e.evt.clientY }
+            }));
+        });
+    }
+
+    render() {
+        this.block = new Konva.Rect({
+            x: this.pos.x,
+            y: this.pos.y,
+            width:        this.width,
+            height:       this.height,
+            fill:         this.color,
+            stroke:       this.strokeColor,
+            strokeWidth:  2,
+            cornerRadius: 5,
+        });
+        this.add(this.block);
+
+        this.label = new Konva.Text({
+            x:            this.pos.x,
+            y:            this.pos.y,
+            width:        this.block.width(),
+            height:       this.block.height(),
+            align:        'center',
+            verticalAlign:'middle',
+            text:         this.owner.label,
+            fontSize:     this.owner.fontSize || 16,
+            fontStyle:    'bold',
+            fill:         '#1e293b',
+        });
+        this.add(this.label);
+    }
+
+    move(newPos) {
+        this.pos = newPos;
+        this.position(newPos);
+        if (this.stage && this.stage.draw) this.stage.draw(this);
+    }
+
+    /* ── Selection highlight ── */
+    showSelected() {
+        if (!this._selRect) {
+            this._selRect = new Konva.Rect({
+                x:            -4,
+                y:            -4,
+                width:        this.block.width()  + 8,
+                height:       this.block.height() + 8,
+                stroke:       '#3B82F6',
+                strokeWidth:  2,
+                fill:         'transparent',
+                dash:         [6, 3],
+                cornerRadius: 8,
+                listening:    false,
+            });
+            this.add(this._selRect);
+            this._selRect.moveToBottom();
+        }
+        this._selRect.visible(true);
+        if (this.getLayer()) this.getLayer().batchDraw();
+    }
+
+    hideSelected() {
+        if (this._selRect) {
+            this._selRect.visible(false);
+            if (this.getLayer()) this.getLayer().batchDraw();
+        }
+    }
+
+    /**
+     * Rotate the block 90° clockwise around its visual center.
+     *
+     * On the first call we shift the Konva transform origin to the block
+     * center so all subsequent rotations spin in place.  After that we
+     * just increment the rotation angle and redraw connected wires.
+     */
+    rotate() {
+        const w = this.owner.size.width;
+        const h = this.owner.size.height;
+
+        if (this.offsetX() === 0 && this.offsetY() === 0) {
+            // First rotation: anchor the transform origin to the center.
+            // Compensate the position so the block stays where it is visually.
+            this.offsetX(w / 2);
+            this.offsetY(h / 2);
+            this.x(this.x() + w / 2);
+            this.y(this.y() + h / 2);
+        }
+
+        this.rotation((this.rotation() + 90) % 360);
+
+        // Keep the label text upright and re-centered
+        this._updateLabelTransform();
+
+        // Redraw all connected wires to follow the new port positions
+        [...this.owner.inputPorts, ...this.owner.outputPorts].forEach(port => {
+            port.updateWiresOnDrag();
+        });
+
+        if (this.getLayer()) this.getLayer().batchDraw();
+    }
+
+    /**
+     * Counter-rotate the label so it stays visually upright after the
+     * block group has been rotated.
+     *
+     * At 90°/270° the group is visually h-wide and w-tall, so the label's
+     * text box dimensions are swapped to keep it filling the block correctly.
+     * Both the label and its text box are anchored to the block's center.
+     */
+    _updateLabelTransform() {
+        if (!this.label) return;
+        const w     = this.owner.size.width;
+        const h     = this.owner.size.height;
+        const angle = this.rotation(); // always 0, 90, 180, or 270
+
+        // At 90°/270° the visible block is h-wide and w-tall — swap box dimensions
+        const boxW = (angle === 90 || angle === 270) ? h : w;
+        const boxH = (angle === 90 || angle === 270) ? w : h;
+
+        // Anchor the label's rotation center to the block's center (w/2, h/2)
+        this.label.offsetX(boxW / 2);
+        this.label.offsetY(boxH / 2);
+        this.label.x(w / 2);
+        this.label.y(h / 2);
+        this.label.width(boxW);
+        this.label.height(boxH);
+        // Counter-rotate to cancel out the group's rotation
+        this.label.rotation(-angle);
+    }
+
+    turnOnBox() {
+        const box = this.getClientRect({ skipTransform: false });
+        const bbox = new Konva.Rect({
+            x:           box.x,
+            y:           box.y,
+            width:       box.width,
+            height:      box.height,
+            stroke:      'red',
+            strokeWidth: 1,
+            dash:        [4, 4],
+            listening:   false
+        });
+        this.add(bbox);
+        if (this.stage && this.stage.draw) this.stage.draw(this);
+    }
+}

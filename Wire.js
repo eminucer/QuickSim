@@ -1,6 +1,8 @@
 import { Dot } from './Dot.js';
 
 export class Wire extends Konva.Layer {
+    static branchingWire = null;
+
     constructor(stage){
         super();
         this.wires = {};
@@ -144,6 +146,7 @@ export class Wire extends Konva.Layer {
                     const mousePos = this.stage.getPointerPosition();
                     const dot = new Dot(this, { x: mousePos.x, y: mousePos.y, radius: 5, fill: 'black' });
                     this.isBranching = true;
+                    Wire.branchingWire = this;
                     this.add(dot); // Just to have a reference, not displayed
                     this.batchDraw();
                     this.startWire(dot, dot.objOn.id);
@@ -292,11 +295,64 @@ export class Wire extends Konva.Layer {
         this.wires[blockId].push(wireObj);
         this.tempLine = null;
         this.isDrawing = false;
-        this.isBranching = false;
         this.startDot.addWire(wireObj);
+        this.startDot.isConnected = true;
         dot.addWire(wireObj);
 
+        if(Wire.branchingWire){
+            this.isBranching = false;
+            this.createWireSegment();
+            Wire.branchingWire = null;
+        }
+
     }
+
+    createWireSegment() {
+        // Split the original wire (found in this.wires) at this.startDotPos into two segments.
+        if (!this.startDotPos) return;
+        const splitPoint = this.startDotPos;
+        const wireObj = Wire.branchingWire;
+        console.log(Wire.branchingWire);
+        
+        const pts = wireObj.line.points();
+        const p1 = [];
+        const p2 = [];
+
+        for (let i = 0; i < pts.length - 2; i += 2) {
+            const x1 = pts[i];
+            const y1 = pts[i + 1];
+            const x2 = pts[i + 2];
+            const y2 = pts[i + 3];
+
+            p1.push(x1, y1);
+            p2.push(x2, y2);
+        }
+
+        const commonAttrs = {
+            stroke: oldLine.stroke(),
+            strokeWidth: oldLine.strokeWidth(),
+            lineCap: oldLine.lineCap(),
+            lineJoin: oldLine.lineJoin()
+        };
+
+        const line1 = new Konva.Line({
+            ...commonAttrs,
+            points: p1
+        });
+
+        const line2 = new Konva.Line({
+            ...commonAttrs,
+            points: p2
+        });
+
+        this.add(line1, line2);
+        line1.draw();
+        line2.draw();
+        wireObj.destroy();
+        this.batchDraw();
+
+    }
+    
 
     cancelWire() {
         if (this.tempLine) {
