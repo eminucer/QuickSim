@@ -124,6 +124,13 @@ export class DefaultBlockRenderer extends Konva.Group {
                 detail: { block: this.owner, x: e.evt.clientX, y: e.evt.clientY }
             }));
         });
+        this.on('dblclick', e => {
+            if (!this.owner.configurable) return;
+            e.evt.preventDefault();
+            document.dispatchEvent(new CustomEvent('block-dblclick', {
+                detail: { block: this.owner }
+            }));
+        });
     }
 
     render() {
@@ -249,6 +256,15 @@ export class DefaultBlockRenderer extends Konva.Group {
         this.label.height(boxH);
         // Counter-rotate to cancel out the group's rotation
         this.label.rotation(-angle);
+    }
+
+    resize(newH) {
+        this.height = newH;
+        this.owner.size.height = newH;
+        this.block.height(newH);
+        this.label.height(newH);
+        if (this._selRect) this._selRect.height(newH + 8);
+        if (this.getLayer()) this.getLayer().batchDraw();
     }
 
     turnOnBox() {

@@ -334,6 +334,82 @@
         .ctx-item:hover { background: #f1f5f9; }
         .ctx-item.danger { color: #dc2626; }
         .ctx-item.danger:hover { background: #fef2f2; }
+
+        /* ── Block properties dialog ── */
+        .dialog-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.35);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+        }
+        .dialog-overlay.visible { display: flex; }
+        .dialog-box {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.18);
+            padding: 24px;
+            min-width: 240px;
+        }
+        .dialog-title {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 16px;
+        }
+        .dialog-fields {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .dialog-field {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            font-size: 12.5px;
+            color: #475569;
+        }
+        .dialog-field input[type=number] {
+            width: 60px;
+            padding: 5px 8px;
+            border: 1px solid #e2e8f0;
+            border-radius: 5px;
+            font-size: 13px;
+            text-align: center;
+            outline: none;
+        }
+        .dialog-field input[type=number]:focus {
+            border-color: #3B82F6;
+            box-shadow: 0 0 0 2px rgba(59,130,246,0.18);
+        }
+        .dialog-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        .dlg-btn {
+            padding: 6px 16px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .dlg-btn-cancel {
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            color: #475569;
+        }
+        .dlg-btn-cancel:hover { background: #f1f5f9; }
+        .dlg-btn-ok {
+            border: none;
+            background: #3B82F6;
+            color: #fff;
+        }
+        .dlg-btn-ok:hover { background: #2563EB; }
     </style>
 </head>
 <body>
@@ -398,6 +474,27 @@
         <div class="ctx-item danger" id="ctx-junction-delete">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
             Delete Branch Point
+        </div>
+    </div>
+
+    <!-- Block properties dialog -->
+    <div id="block-dialog" class="dialog-overlay">
+        <div class="dialog-box">
+            <div class="dialog-title" id="dlg-title">Block Properties</div>
+            <div class="dialog-fields">
+                <label class="dialog-field">
+                    Inputs
+                    <input id="dlg-inputs" type="number" min="1" max="16" value="2">
+                </label>
+                <label class="dialog-field">
+                    Outputs
+                    <input id="dlg-outputs" type="number" min="1" max="16" value="1">
+                </label>
+            </div>
+            <div class="dialog-actions">
+                <button class="dlg-btn dlg-btn-cancel" id="dlg-cancel">Cancel</button>
+                <button class="dlg-btn dlg-btn-ok" id="dlg-ok">Apply</button>
+            </div>
         </div>
     </div>
 

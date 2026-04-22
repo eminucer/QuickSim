@@ -17,6 +17,7 @@ export class Block {
         this.label       = params.label       || 'Block';
         this.fontSize    = params.fontSize    || 16;
         this.isSelected  = false;
+        this.configurable = params.configurable || false;
 
         this.inputPorts  = [];
         this.outputPorts = [];
@@ -86,6 +87,74 @@ export class Block {
 
     rotate() {
         this.renderer.rotate();
+    }
+
+    resize(numInputs, numOutputs) {
+        const MIN_SLOT = 20;
+        const newH = Math.max(40, Math.max(numInputs, numOutputs) * MIN_SLOT);
+
+        const prevInputCount  = this.inputPorts.length;
+        const prevOutputCount = this.outputPorts.length;
+
+        // Remove excess input ports (disconnect wires first)
+        for (let i = numInputs; i < prevInputCount; i++) {
+            if (this.inputPorts[i].wire) this.inputPorts[i].wire.delete();
+            this.inputPorts[i].renderer.destroy();
+        }
+        this.inputPorts.splice(numInputs);
+
+        // Remove excess output ports
+        for (let i = numOutputs; i < prevOutputCount; i++) {
+            if (this.outputPorts[i].wire) this.outputPorts[i].wire.delete();
+            this.outputPorts[i].renderer.destroy();
+        }
+        this.outputPorts.splice(numOutputs);
+
+        // Update state and resize the visual rect/label
+        this.numOfPorts = [numInputs, numOutputs];
+        this.size.height = newH;
+        this.renderer.resize(newH);
+
+        // Rebuild renderers for kept ports — positions change with new height/count
+        this.inputPorts.forEach((port, i) => {
+            port.renderer.destroy();
+            port.params = { ...port.params, idx: i, numOfPorts: numInputs };
+            const R = port.createRendererClass();
+            port.renderer = new R(port, port.params);
+            port.renderer.render();
+            this.renderer.add(port.renderer);
+        });
+
+        this.outputPorts.forEach((port, i) => {
+            port.renderer.destroy();
+            port.params = { ...port.params, idx: i, numOfPorts: numOutputs };
+            const R = port.createRendererClass();
+            port.renderer = new R(port, port.params);
+            port.renderer.render();
+            this.renderer.add(port.renderer);
+        });
+
+        // Add new input ports
+        for (let i = prevInputCount; i < numInputs; i++) {
+            const port = new Port(this, { type: 'input', idx: i, numOfPorts: numInputs });
+            this.add(port);
+            this.inputPorts.push(port);
+        }
+
+        // Add new output ports
+        for (let i = prevOutputCount; i < numOutputs; i++) {
+            const port = new Port(this, { type: 'output', idx: i, numOfPorts: numOutputs });
+            this.add(port);
+            this.outputPorts.push(port);
+        }
+
+        // Re-route wires from kept ports
+        [...this.inputPorts, ...this.outputPorts].forEach(port => {
+            if (port.wire) port.updateWiresOnDrag();
+        });
+
+        if (this.stage.blockLayer) this.stage.blockLayer.batchDraw();
+        if (this.stage.wireLayer)  this.stage.wireLayer.batchDraw();
     }
 
     createRendererClass() {

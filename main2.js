@@ -257,3 +257,51 @@ document.addEventListener('click', e => {
         contextMenuJunction = null;
     }
 });
+
+/* ─────────────────────────────────────────
+   Block properties dialog (double-click)
+───────────────────────────────────────── */
+const blockDialog  = document.getElementById('block-dialog');
+const dlgTitle     = document.getElementById('dlg-title');
+const dlgInputs    = document.getElementById('dlg-inputs');
+const dlgOutputs   = document.getElementById('dlg-outputs');
+let   dialogBlock  = null;
+
+function openBlockDialog(block) {
+    dialogBlock      = block;
+    dlgTitle.textContent = block.name + ' — Port Configuration';
+    dlgInputs.value  = block.numOfPorts[0];
+    dlgOutputs.value = block.numOfPorts[1];
+    blockDialog.classList.add('visible');
+    dlgInputs.focus();
+    dlgInputs.select();
+}
+
+function closeBlockDialog() {
+    blockDialog.classList.remove('visible');
+    dialogBlock = null;
+}
+
+function applyBlockDialog() {
+    if (!dialogBlock) return;
+    const inputs  = Math.max(1, parseInt(dlgInputs.value)  || 1);
+    const outputs = Math.max(1, parseInt(dlgOutputs.value) || 1);
+    dialogBlock.resize(inputs, outputs);
+    closeBlockDialog();
+}
+
+document.addEventListener('block-dblclick', e => openBlockDialog(e.detail.block));
+
+document.getElementById('dlg-ok').addEventListener('click', applyBlockDialog);
+document.getElementById('dlg-cancel').addEventListener('click', closeBlockDialog);
+
+// Close on backdrop click
+blockDialog.addEventListener('click', e => {
+    if (e.target === blockDialog) closeBlockDialog();
+});
+
+// Enter to confirm, Escape to cancel
+blockDialog.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); applyBlockDialog(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeBlockDialog(); }
+});
