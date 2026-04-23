@@ -1,4 +1,5 @@
-import { stage, tempWire } from "./components/Stage/stageSetup.js";
+import { stage } from "./components/Stage/stageSetup.js";
+import { Stage }           from "./components/Stage/Stage.js";
 import { BlockAdd }        from "./components/Block/BlockAdd.js";
 import { BlockMultiply }   from "./components/Block/BlockMultiply.js";
 import { BlockDivide }     from "./components/Block/BlockDivide.js";
@@ -9,6 +10,8 @@ import { BlockStep }       from "./components/Block/BlockStep.js";
 import { BlockSinusoidal } from "./components/Block/BlockSinusoidal.js";
 import { BlockRamp }       from "./components/Block/BlockRamp.js";
 import { BlockDisplay }    from "./components/Block/BlockDisplay.js";
+import { BlockSubmodel }   from "./components/Block/BlockSubmodel.js";
+import { WireSegment }     from "./components/Wire/WireSegment.js";
 
 /* ─────────────────────────────────────────
    Palette block catalogue
@@ -117,14 +120,11 @@ CATALOGUE.forEach(cat => {
     paletteEl.appendChild(catEl);
 
     cat.items.forEach(({ Class, name, type }) => {
-        // Create template block, capture, then destroy — synchronously, one at a time
         const templateBlock = new Class(fakeStage, { pos: { x: 8, y: 8 } });
         fakeStage.add(templateBlock);
         hiddenLayer.draw();
 
         const box = templateBlock.renderer.getClientRect({ relativeTo: hiddenLayer });
-
-        // toDataURL without a callback returns synchronously for pure-canvas shapes
         const url = templateBlock.renderer.toDataURL({
             pixelRatio: 2,
             x:     box.x - 3,
@@ -133,7 +133,6 @@ CATALOGUE.forEach(cat => {
             height: box.height + 6,
         });
 
-        // Destroy BEFORE creating the next block so they don't overlap
         templateBlock.renderer.destroy();
         hiddenLayer.draw();
 
@@ -154,23 +153,26 @@ paletteEl.addEventListener('dragstart', e => {
 
 paletteEl.addEventListener('dragend', () => { dragType = null; });
 
-const workspaceEl = document.getElementById('workspace');
-workspaceEl.addEventListener('dragover', e => e.preventDefault());
+const workspacesEl = document.getElementById('workspaces');
+workspacesEl.addEventListener('dragover', e => e.preventDefault());
 
-workspaceEl.addEventListener('drop', e => {
+workspacesEl.addEventListener('drop', e => {
     e.preventDefault();
     if (!dragType || !BLOCK_CLASS_MAP[dragType]) return;
 
-    const rect = workspaceEl.getBoundingClientRect();
+    const activeStage = activeTabId === 'main'
+        ? stage
+        : submodelRegistry.get(activeTabId)?.subStage;
+    if (!activeStage) return;
+
+    const rect = workspacesEl.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
 
-    // Convert screen (canvas pixel) coords → stage world coords
-    const worldPos = stage.screenToWorld(screenX, screenY);
-
+    const worldPos = activeStage.screenToWorld(screenX, screenY);
     const BlockClass = BLOCK_CLASS_MAP[dragType];
-    const block = new BlockClass(stage, { pos: worldPos });
-    stage.add(block);
+    const block = new BlockClass(activeStage, { pos: worldPos });
+    activeStage.add(block);
 
     dragType = null;
 });
@@ -182,10 +184,12 @@ document.addEventListener('keydown', e => {
     if (e.target.matches('input, textarea, select')) return;
 
     if (e.code === 'Escape') {
-        if (tempWire.isDrawing()) {
-            tempWire.renderer.cancelDraw();
-        }
-        stage.deselectAll();
+        const activeStage = activeTabId === 'main'
+            ? stage
+            : submodelRegistry.get(activeTabId)?.subStage;
+        const activeTempWire = activeStage?.tempWire;
+        if (activeTempWire?.isDrawing()) activeTempWire.renderer.cancelDraw();
+        activeStage?.deselectAll();
     }
 });
 
@@ -196,6 +200,286 @@ document.getElementById('btn-fit').addEventListener('click', () => stage.fitToSc
 document.getElementById('btn-reset-zoom').addEventListener('click', () => stage.resetZoom());
 document.getElementById('btn-rotate').addEventListener('click', () => stage.rotateSelected());
 document.getElementById('btn-delete').addEventListener('click', () => stage.deleteSelected());
+
+/* ─────────────────────────────────────────
+   Tab management
+───────────────────────────────────────── */
+let activeTabId = 'main';
+// blockId → { tabEl, workspaceEl, subStage }
+const submodelRegistry = new Map();
+
+const tabBar = document.getElementById('tab-bar');
+
+document.querySelector('#tab-bar .tab[data-id="main"]').addEventListener('click', () => {
+    switchToTab('main');
+});
+
+function switchToTab(id) {
+    activeTabId = id;
+
+    document.querySelectorAll('#tab-bar .tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.workspace-canvas').forEach(w => w.classList.add('hidden'));
+
+    if (id === 'main') {
+        document.querySelector('#tab-bar .tab[data-id="main"]').classList.add('active');
+        document.getElementById('workspace').classList.remove('hidden');
+    } else {
+        const entry = submodelRegistry.get(id);
+        if (!entry) return;
+        entry.tabEl.classList.add('active');
+        entry.workspaceEl.classList.remove('hidden');
+        // Ensure the submodel stage fills the container
+        entry.subStage.stage.width(window.innerWidth);
+        entry.subStage.stage.height(window.innerHeight);
+        entry.subStage.stage.batchDraw();
+    }
+}
+
+function openSubmodelTab(block) {
+    const id = block.id;
+
+    if (submodelRegistry.has(id)) {
+        // Tab was closed but registry entry persists — re-add the tab
+        const entry = submodelRegistry.get(id);
+        if (!entry.tabEl.isConnected) {
+            tabBar.appendChild(entry.tabEl);
+        }
+        switchToTab(id);
+        return;
+    }
+
+    // Create workspace container
+    const wsEl = document.createElement('div');
+    wsEl.className = 'workspace-canvas hidden';
+    wsEl.id = `ws-sub-${id}`;
+    workspacesEl.appendChild(wsEl);
+
+    // Create submodel Stage (no keyboard handler — main stage handles keys)
+    const subStage = new Stage(`ws-sub-${id}`, { noKeyboard: true, noResize: true });
+
+    // Give the submodel stage its own tempWire so port clicks draw on this stage
+    const subTempWire = new WireSegment(subStage);
+    subStage.wireLayer.add(subTempWire.renderer);
+    subStage.tempWire = subTempWire;
+
+    // Populate with internal blocks and wires
+    populateSubmodelStage(subStage, block.internalData);
+
+    // Create tab element
+    const tabEl = document.createElement('div');
+    tabEl.className = 'tab';
+    tabEl.dataset.id = id;
+    tabEl.innerHTML = `<span>${block.label || 'Submodel'}</span><span class="tab-close" title="Close">×</span>`;
+    tabEl.querySelector('.tab-close').addEventListener('click', e => {
+        e.stopPropagation();
+        closeSubmodelTab(id);
+    });
+    tabEl.addEventListener('click', () => switchToTab(id));
+    tabBar.appendChild(tabEl);
+
+    submodelRegistry.set(id, { tabEl, workspaceEl: wsEl, subStage });
+    switchToTab(id);
+}
+
+function closeSubmodelTab(id) {
+    const entry = submodelRegistry.get(id);
+    if (!entry) return;
+    entry.tabEl.remove();
+    // Keep workspace and subStage alive so re-open restores state
+    entry.workspaceEl.classList.add('hidden');
+    if (activeTabId === id) switchToTab('main');
+}
+
+// Clean up when a submodel block is deleted from the main canvas
+document.addEventListener('submodel-destroyed', e => {
+    const id = e.detail.id;
+    const entry = submodelRegistry.get(id);
+    if (!entry) return;
+    entry.tabEl?.remove();
+    entry.workspaceEl.remove();
+    submodelRegistry.delete(id);
+    if (activeTabId === id) switchToTab('main');
+});
+
+// Resize submodel stages when window resizes
+window.addEventListener('resize', () => {
+    for (const [, entry] of submodelRegistry) {
+        entry.subStage.stage.width(window.innerWidth);
+        entry.subStage.stage.height(window.innerHeight);
+        entry.subStage.stage.batchDraw();
+    }
+});
+
+/* ─────────────────────────────────────────
+   Submodel open (double-click submodel block)
+───────────────────────────────────────── */
+document.addEventListener('submodel-open', e => openSubmodelTab(e.detail.block));
+
+/* ─────────────────────────────────────────
+   Submodel internals: serialize / deserialize
+───────────────────────────────────────── */
+function serializeInternals(blocks, wires) {
+    const bIdx = new Map(blocks.map((b, i) => [b, i]));
+
+    const blockData = blocks.map(b => ({
+        Class:      b.constructor,
+        pos:        { x: b.renderer.x(), y: b.renderer.y() },
+        label:      b.label,
+        numOfPorts: [...b.numOfPorts],
+    }));
+
+    const wireData = wires.flatMap(wire => {
+        const findRef = cp => {
+            if (!cp?.owner || !bIdx.has(cp.owner)) return null;
+            const bi = bIdx.get(cp.owner);
+            const ii = cp.owner.inputPorts.indexOf(cp);
+            if (ii >= 0) return { bi, pt: 'input',  pi: ii };
+            const oi = cp.owner.outputPorts.indexOf(cp);
+            if (oi >= 0) return { bi, pt: 'output', pi: oi };
+            return null;
+        };
+        const s = findRef(wire.cps.start);
+        const e = findRef(wire.cps.end);
+        return (s && e) ? [{ s, e }] : [];
+    });
+
+    return { blockData, wireData };
+}
+
+function populateSubmodelStage(subStage, data) {
+    if (!data) return;
+    const { blockData, wireData } = data;
+
+    const blocks = blockData.map(bd => {
+        const block = new bd.Class(subStage, { pos: bd.pos });
+        // Restore label if it differs from the constructor default
+        if (block.label !== bd.label && block.renderer.label) {
+            block.label = bd.label;
+            block.renderer.label.text(bd.label);
+        }
+        // Restore port count for configurable blocks (Add, Multiply, etc.)
+        const [ni, no] = bd.numOfPorts;
+        if (block.numOfPorts[0] !== ni || block.numOfPorts[1] !== no) {
+            block.resize(ni, no);
+        }
+        return block;
+    });
+
+    blocks.forEach(b => subStage.add(b));
+
+    wireData.forEach(wd => {
+        const sb = blocks[wd.s.bi];
+        const eb = blocks[wd.e.bi];
+        if (!sb || !eb) return;
+        const sPort = wd.s.pt === 'input' ? sb.inputPorts[wd.s.pi] : sb.outputPorts[wd.s.pi];
+        const ePort = wd.e.pt === 'input' ? eb.inputPorts[wd.e.pi] : eb.outputPorts[wd.e.pi];
+        if (!sPort || !ePort || sPort.isConnected || ePort.isConnected) return;
+
+        const wire = new WireSegment(subStage);
+        subStage.wireLayer.add(wire.renderer);
+        wire.renderer.connect2WithVisual(sPort, ePort);
+    });
+
+    subStage.blockLayer.batchDraw();
+    subStage.wireLayer.batchDraw();
+}
+
+/* ─────────────────────────────────────────
+   Make Submodel
+───────────────────────────────────────── */
+let submodelCounter = 0;
+
+function makeSubmodel() {
+    // Use all selected blocks, or fall back to the right-clicked block alone
+    const selected = stage.selectedItems.filter(item => item.inputPorts != null);
+    const targets  = selected.length > 0 ? selected : (contextMenuBlock ? [contextMenuBlock] : []);
+    if (targets.length === 0) return;
+
+    const blockSet = new Set(targets);
+
+    // Classify each boundary wire as input (signal coming IN) or output (going OUT)
+    const inputConns  = []; // { externalCP, internalPort, wire }
+    const outputConns = []; // { internalPort, externalCP, wire }
+    const internalWireSet = new Set();
+
+    targets.forEach(block => {
+        [...block.inputPorts, ...block.outputPorts].forEach(port => {
+            const wire = port.wire;
+            if (!wire) return;
+            const other = wire.cps.start === port ? wire.cps.end : wire.cps.start;
+            if (!other) return;
+            const isInternal = other.owner != null && blockSet.has(other.owner);
+            if (isInternal) {
+                internalWireSet.add(wire);
+            } else if (port.params.type === 'input') {
+                inputConns.push({ externalCP: other, internalPort: port, wire });
+            } else {
+                outputConns.push({ internalPort: port, externalCP: other, wire });
+            }
+        });
+    });
+
+    // Compute bounding-box center for submodel placement
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    targets.forEach(b => {
+        minX = Math.min(minX, b.renderer.x());
+        minY = Math.min(minY, b.renderer.y());
+        maxX = Math.max(maxX, b.renderer.x() + b.size.width);
+        maxY = Math.max(maxY, b.renderer.y() + b.size.height);
+    });
+
+    // Capture internal state before deletion
+    const internalData = serializeInternals(targets, [...internalWireSet]);
+
+    // Protect boundary wires: null out the internal-side port reference so
+    // block.delete() won't destroy these wires (we'll re-route them below)
+    [...inputConns, ...outputConns].forEach(conn => {
+        conn.internalPort.wire        = null;
+        conn.internalPort.isConnected = false;
+    });
+
+    // Delete selected blocks (cleans up internal wires + removes from stage)
+    stage.deselectAll();
+    [...targets].forEach(b => b.delete());
+
+    // Create the submodel block at the bounding-box center
+    const numIn  = inputConns.length;
+    const numOut = outputConns.length;
+    const subH   = Math.max(60, Math.max(numIn, numOut, 1) * 24 + 16);
+    const subPos = {
+        x: Math.round((minX + maxX) / 2 - 45),
+        y: Math.round((minY + maxY) / 2 - subH / 2),
+    };
+
+    const submodel = new BlockSubmodel(stage, {
+        numInputs:    numIn,
+        numOutputs:   numOut,
+        pos:          subPos,
+        internalData,
+        label:        `Sub ${++submodelCounter}`,
+    });
+    stage.add(submodel);
+
+    // Re-route boundary wires: swap the internal port endpoint to the submodel port
+    inputConns.forEach(({ externalCP, internalPort, wire }, i) => {
+        if (wire.cps.start === internalPort) wire.cps.start = submodel.inputPorts[i];
+        else                                 wire.cps.end   = submodel.inputPorts[i];
+        submodel.inputPorts[i].wire        = wire;
+        submodel.inputPorts[i].isConnected = true;
+        wire.renderer.updateOnDrag(externalCP);
+    });
+
+    outputConns.forEach(({ internalPort, externalCP, wire }, i) => {
+        if (wire.cps.start === internalPort) wire.cps.start = submodel.outputPorts[i];
+        else                                 wire.cps.end   = submodel.outputPorts[i];
+        submodel.outputPorts[i].wire        = wire;
+        submodel.outputPorts[i].isConnected = true;
+        wire.renderer.updateOnDrag(externalCP);
+    });
+
+    stage.blockLayer.batchDraw();
+    stage.wireLayer.batchDraw();
+}
 
 /* ─────────────────────────────────────────
    Block context menu
@@ -213,6 +497,12 @@ document.addEventListener('block-contextmenu', e => {
 document.getElementById('ctx-rotate').addEventListener('click', () => {
     if (contextMenuBlock) contextMenuBlock.rotate();
     contextMenu.classList.remove('visible');
+});
+
+document.getElementById('ctx-make-submodel').addEventListener('click', () => {
+    makeSubmodel();
+    contextMenu.classList.remove('visible');
+    contextMenuBlock = null;
 });
 
 document.getElementById('ctx-delete').addEventListener('click', () => {

@@ -103,13 +103,13 @@ export class WireSegmentRenderer extends Konva.Group {
     }
 
     /** Live preview while the mouse moves. */
-    update() {
+    update(worldPos) {
         if (!this.isDrawing || !this.wire) return;
-        const worldPos = this.stage.getWorldPointerPosition();
-        if (!worldPos) return;
+        const pos = worldPos ?? this.stage.getWorldPointerPosition();
+        if (!pos) return;
         this.wire.listening(false);
         this.wire.points(this._getTempWirePoints(
-            WireSegmentRenderer.startPointPos, worldPos,
+            WireSegmentRenderer.startPointPos, pos,
             WireSegmentRenderer.startPoint,
         ));
         if (this.getLayer()) this.getLayer().batchDraw();
@@ -196,6 +196,22 @@ export class WireSegmentRenderer extends Konva.Group {
 
     /** Direct connect for split wires — no visual setup needed here. */
     connect2(startCP, endCP) {
+        this.owner.cps = { start: startCP, end: endCP };
+        startCP.assignWire(this.owner);
+        endCP.assignWire(this.owner);
+    }
+
+    /** Connect two CPs programmatically and draw the routed wire path. */
+    connect2WithVisual(startCP, endCP) {
+        const startPos = startCP.getPositions();
+        const endPos   = endCP.getPositions();
+        const points   = this._getWirePoints(startPos, endPos, startCP, endCP);
+        if (this.wire) { this.wire.destroy(); this.wire = null; }
+        this._pts = this._toPointObjects(points);
+        this.wire = new Konva.Line({ points, ...this.normalAttrs });
+        this.wire.listening(true);
+        this._initWireEvents();
+        this.add(this.wire);
         this.owner.cps = { start: startCP, end: endCP };
         startCP.assignWire(this.owner);
         endCP.assignWire(this.owner);

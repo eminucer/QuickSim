@@ -5,7 +5,7 @@ import { DefaultBlockRenderer } from '../Block/DefaultBlockRenderer.js';
 import { WireSegmentRenderer } from '../Wire/WireSegmentRenderer.js';
 
 export class Stage {
-    constructor(container) {
+    constructor(container, { noKeyboard = false, noResize = false } = {}) {
         const width  = window.innerWidth;
         const height = window.innerHeight;
 
@@ -39,9 +39,9 @@ export class Stage {
         this.stage.add(this.blockLayer);
         this.blockLayer.add(this._marqueeRect);
 
-        this._initKeyboard();
+        if (!noKeyboard) this._initKeyboard();
         this._initStageEvents();
-        this._initResize();
+        if (!noResize)   this._initResize();
     }
 
     /* ──────────────────────────────────────
@@ -163,8 +163,25 @@ export class Stage {
         return this.screenToWorld(pos.x, pos.y);
     }
 
-    onPointerMove(callback) { this.stage.on('pointermove', () => callback()); }
-    offPointerMove()        { this.stage.off('pointermove'); }
+    onPointerMove(callback) {
+        this.offPointerMove();
+        this._pmHandler = (e) => {
+            const rect     = this.stage.container().getBoundingClientRect();
+            const scale    = this.stage.scaleX();
+            const stagePos = this.stage.position();
+            callback({
+                x: (e.clientX - rect.left - stagePos.x) / scale,
+                y: (e.clientY - rect.top  - stagePos.y) / scale,
+            });
+        };
+        window.addEventListener('mousemove', this._pmHandler);
+    }
+    offPointerMove() {
+        if (this._pmHandler) {
+            window.removeEventListener('mousemove', this._pmHandler);
+            this._pmHandler = null;
+        }
+    }
 
     /* ──────────────────────────────────────
        View helpers
@@ -364,12 +381,16 @@ export class Stage {
         // ── Deselect on empty canvas click ──
         this.stage.on('click', e => {
             if (this._didMarquee) { this._didMarquee = false; return; }
-            if (e.target === this.stage) this.deselectAll();
+            if (e.target === this.stage) {
+                if (this.tempWire?.isDrawing()) this.tempWire.renderer.cancelDraw();
+                this.deselectAll();
+            }
         });
 
         // Prevent context menu default on stage (wires handle it themselves)
         this.stage.on('contextmenu', e => {
-            if (e.target === this.stage) e.evt.preventDefault();
+            e.evt.preventDefault();
+            if (this.tempWire?.isDrawing()) this.tempWire.renderer.cancelDraw();
         });
     }
 

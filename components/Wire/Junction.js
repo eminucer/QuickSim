@@ -1,5 +1,4 @@
 import { WireSegment } from './WireSegment.js';
-import { stage, tempWire } from '../Stage/stageSetup.js';
 
 /**
  * A branch point placed on an existing wire.
@@ -99,24 +98,24 @@ export class Junction {
     }
 
     _onClick() {
-        if (tempWire.isDrawing()) {
-            // Finish the in-progress wire AT this junction
-            tempWire.delete();
-            const newWire = new WireSegment(stage);
-            stage.add(newWire);
+        const stg = this.stage;
+        const tw  = stg?.tempWire;
+        if (!tw) return;
+
+        if (tw.isDrawing()) {
+            tw.delete();
+            const newWire = new WireSegment(stg);
+            stg.add(newWire);
             newWire.connect(this);
             return;
         }
 
         if (this._isSelected()) {
-            // Deselect first so the junction isn't in selectedItems while drawing
-            stage.deselectAll();
-            // Second click while selected → start a new branch wire
-            tempWire.start(this);
+            stg.deselectAll();
+            tw.start(this);
         } else {
-            // First click → select
-            stage.deselectAll();
-            stage.selectedItems.push(this);
+            stg.deselectAll();
+            stg.selectedItems.push(this);
             this.renderer.fill('#3B82F6');
             this.renderer.stroke('#3B82F6');
             this.renderer.radius(7);

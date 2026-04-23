@@ -38,16 +38,14 @@ export class GainBlockRenderer extends DefaultBlockRenderer {
     }
 
     showSelected() {
-        this.block.stroke('#3B82F6');
         this.block.strokeWidth(3);
-        this.block.shadowColor('#3B82F6');
-        this.block.shadowBlur(10);
-        this.block.shadowOpacity(0.5);
+        this.block.shadowColor(this.strokeColor);
+        this.block.shadowBlur(12);
+        this.block.shadowOpacity(0.6);
         if (this.getLayer()) this.getLayer().batchDraw();
     }
 
     hideSelected() {
-        this.block.stroke(this.strokeColor);
         this.block.strokeWidth(2);
         this.block.shadowBlur(0);
         this.block.shadowOpacity(0);

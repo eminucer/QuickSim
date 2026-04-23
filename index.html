@@ -253,16 +253,69 @@
             color: #94a3b8;
         }
 
+        /* ── Tab bar ── */
+        #tab-bar {
+            height: 33px;
+            background: #f1f5f9;
+            border-bottom: 1px solid var(--toolbar-border);
+            display: flex;
+            align-items: flex-end;
+            padding: 0 8px;
+            gap: 2px;
+            flex-shrink: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        #tab-bar::-webkit-scrollbar { height: 0; }
+
+        .tab {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px 4px;
+            cursor: pointer;
+            color: #94a3b8;
+            background: transparent;
+            border: 1px solid transparent;
+            border-bottom: none;
+            border-radius: 5px 5px 0 0;
+            font-size: 12px;
+            font-weight: 500;
+            user-select: none;
+            white-space: nowrap;
+            margin-bottom: -1px;
+            transition: color 0.1s, background 0.1s;
+        }
+        .tab.active {
+            color: #1e293b;
+            background: var(--canvas-bg);
+            border-color: var(--toolbar-border);
+        }
+        .tab:hover:not(.active) { color: #475569; background: #e9eef5; }
+        .tab-close {
+            font-size: 15px;
+            line-height: 1;
+            color: #94a3b8;
+            padding: 0 1px;
+        }
+        .tab-close:hover { color: #ef4444; }
+
         /* ── Canvas / Stage ── */
-        #workspace {
+        #workspaces {
             flex: 1;
             position: relative;
             overflow: hidden;
+        }
+
+        .workspace-canvas {
+            position: absolute;
+            inset: 0;
             background-color: var(--canvas-bg);
             background-image: radial-gradient(circle, var(--dot-color) 1.2px, transparent 1.2px);
             background-size: 24px 24px;
             background-position: 0 0;
         }
+        .workspace-canvas.hidden { display: none; }
 
         /* ── Status bar ── */
         #statusbar {
@@ -442,7 +495,12 @@
                     Drag blocks from the library · Click to select · Delete to remove
                 </span>
             </div>
-            <div id="workspace"></div>
+            <div id="tab-bar">
+                <div class="tab active" data-id="main"><span>Main</span></div>
+            </div>
+            <div id="workspaces">
+                <div id="workspace" class="workspace-canvas"></div>
+            </div>
             <div id="statusbar">
                 <span class="status-item"><span class="status-key">Space</span>+drag to pan</span>
                 <span class="status-item"><span class="status-key">Scroll</span>to zoom</span>
@@ -462,6 +520,10 @@
         <div class="ctx-item" id="ctx-rotate">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Rotate 90°
+        </div>
+        <div class="ctx-item" id="ctx-make-submodel">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            Make Submodel
         </div>
         <div class="ctx-item danger" id="ctx-delete">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>

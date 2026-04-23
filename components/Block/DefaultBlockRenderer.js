@@ -10,7 +10,6 @@ export class DefaultBlockRenderer extends Konva.Group {
         this.block        = null;
         this.label        = null;
         this.pos          = owner.pos;
-        this._selRect     = null;
         this._bindEvents();
     }
 
@@ -114,7 +113,7 @@ export class DefaultBlockRenderer extends Konva.Group {
             document.body.style.cursor = 'default';
         });
         this.on('click', e => {
-            // Don't re-select if a port arrow bubbled the click up
+            if (e.evt.button !== 0) return; // ignore right-clicks
             if (e.target && e.target._isPort) return;
             this.owner.select();
         });
@@ -169,31 +168,18 @@ export class DefaultBlockRenderer extends Konva.Group {
 
     /* ── Selection highlight ── */
     showSelected() {
-        if (!this._selRect) {
-            this._selRect = new Konva.Rect({
-                x:            -4,
-                y:            -4,
-                width:        this.block.width()  + 8,
-                height:       this.block.height() + 8,
-                stroke:       '#3B82F6',
-                strokeWidth:  2,
-                fill:         'transparent',
-                dash:         [6, 3],
-                cornerRadius: 8,
-                listening:    false,
-            });
-            this.add(this._selRect);
-            this._selRect.moveToBottom();
-        }
-        this._selRect.visible(true);
+        this.block.strokeWidth(3);
+        this.block.shadowColor(this.strokeColor);
+        this.block.shadowBlur(12);
+        this.block.shadowOpacity(0.6);
         if (this.getLayer()) this.getLayer().batchDraw();
     }
 
     hideSelected() {
-        if (this._selRect) {
-            this._selRect.visible(false);
-            if (this.getLayer()) this.getLayer().batchDraw();
-        }
+        this.block.strokeWidth(2);
+        this.block.shadowBlur(0);
+        this.block.shadowOpacity(0);
+        if (this.getLayer()) this.getLayer().batchDraw();
     }
 
     /**
@@ -263,7 +249,6 @@ export class DefaultBlockRenderer extends Konva.Group {
         this.owner.size.height = newH;
         this.block.height(newH);
         this.label.height(newH);
-        if (this._selRect) this._selRect.height(newH + 8);
         if (this.getLayer()) this.getLayer().batchDraw();
     }
 

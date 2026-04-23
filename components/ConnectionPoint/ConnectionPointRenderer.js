@@ -1,4 +1,3 @@
-import { stage, tempWire } from "../Stage/stageSetup.js";
 import { WireSegment } from "../Wire/WireSegment.js";
 
 export class ConnectionPointRenderer extends Konva.Group {
@@ -16,7 +15,13 @@ export class ConnectionPointRenderer extends Konva.Group {
         this.cp.on('mouseover', () => this._onHover(true));
         this.cp.on('mouseout',  () => this._onHover(false));
         this.cp.on('mousedown', e => {
-            e.cancelBubble = true; // prevent block click-select
+            e.cancelBubble = true;
+            // Disable block drag for this click so Konva's DnD doesn't remove
+            // the pointermove handler we register in tempWire.start().
+            this.parentGroup.draggable(false);
+            window.addEventListener('mouseup', () => {
+                this.parentGroup.draggable(true);
+            }, { once: true });
             this._onPointerDown();
         });
         this.cp.on('click', e => {
@@ -95,26 +100,22 @@ export class ConnectionPointRenderer extends Konva.Group {
     }
 
     _onPointerDown() {
+        const stg = this.stage;
+        const tw  = stg?.tempWire;
+        if (!tw) return;
+
         if (this.owner.isConnected) {
-            // Already connected — cancel any in-progress wire draw
-            if (tempWire.isDrawing()) {
-                tempWire.renderer.cancelDraw();
-            }
+            if (tw.isDrawing()) tw.renderer.cancelDraw();
             return;
         }
 
-        if (tempWire.isDrawing()) {
-            // Finish wire: pass drawing state to a new WireSegment
-            tempWire.delete(); // removes temp visual, preserves startPoint/startPointPos
-            const newWire = new WireSegment(stage);
-            stage.add(newWire);
-            const connected = newWire.connect(this.owner);
-            if (!connected) {
-                // connect() already destroyed the renderer on failure
-            }
+        if (tw.isDrawing()) {
+            tw.delete();
+            const newWire = new WireSegment(stg);
+            stg.add(newWire);
+            newWire.connect(this.owner);
         } else {
-            // Start drawing a new wire
-            tempWire.start(this.owner);
+            tw.start(this.owner);
         }
     }
 }
