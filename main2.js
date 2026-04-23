@@ -11,6 +11,8 @@ import { BlockSinusoidal } from "./components/Block/BlockSinusoidal.js";
 import { BlockRamp }       from "./components/Block/BlockRamp.js";
 import { BlockDisplay }    from "./components/Block/BlockDisplay.js";
 import { BlockSubmodel }   from "./components/Block/BlockSubmodel.js";
+import { BlockInport }     from "./components/Block/BlockInport.js";
+import { BlockOutport }    from "./components/Block/BlockOutport.js";
 import { WireSegment }     from "./components/Wire/WireSegment.js";
 
 /* ─────────────────────────────────────────
@@ -201,6 +203,19 @@ document.getElementById('btn-reset-zoom').addEventListener('click', () => stage.
 document.getElementById('btn-rotate').addEventListener('click', () => stage.rotateSelected());
 document.getElementById('btn-delete').addEventListener('click', () => stage.deleteSelected());
 
+// Route Delete/Backspace to whichever stage is currently visible
+document.addEventListener('keydown', e => {
+    if (e.target.matches('input, textarea, select')) return;
+    if (e.code !== 'Delete' && e.code !== 'Backspace') return;
+    e.preventDefault();
+    if (activeTabId === 'main') {
+        stage.deleteSelected();
+    } else {
+        const entry = submodelRegistry.get(activeTabId);
+        if (entry) entry.subStage.deleteSelected();
+    }
+});
+
 /* ─────────────────────────────────────────
    Tab management
 ───────────────────────────────────────── */
@@ -224,6 +239,9 @@ function switchToTab(id) {
         document.querySelector('#tab-bar .tab[data-id="main"]').classList.add('active');
         document.getElementById('workspace').classList.remove('hidden');
     } else {
+        // Leaving the main canvas — clear its selection so the Delete key
+        // doesn't accidentally target the outer submodel block.
+        stage.deselectAll();
         const entry = submodelRegistry.get(id);
         if (!entry) return;
         entry.tabEl.classList.add('active');
@@ -265,6 +283,14 @@ function openSubmodelTab(block) {
     // Populate with internal blocks and wires
     populateSubmodelStage(subStage, block.internalData);
 
+    // Link inport/outport blocks to their parent submodel block so that
+    // deleting a port block can remove the corresponding external port
+    subStage.blocks.forEach(b => {
+        if (b instanceof BlockInport || b instanceof BlockOutport) {
+            b.parentSubmodelBlock = block;
+        }
+    });
+
     // Create tab element
     const tabEl = document.createElement('div');
     tabEl.className = 'tab';
@@ -290,16 +316,22 @@ function closeSubmodelTab(id) {
     if (activeTabId === id) switchToTab('main');
 }
 
-// Clean up when a submodel block is deleted from the main canvas
-document.addEventListener('submodel-destroyed', e => {
-    const id = e.detail.id;
+// Recursively close and destroy a submodel tab and all open nested submodel tabs
+function destroySubmodelRecursive(id) {
     const entry = submodelRegistry.get(id);
     if (!entry) return;
+    // Depth-first: destroy any nested submodels whose tabs were opened
+    entry.subStage.blocks.forEach(block => {
+        if (block instanceof BlockSubmodel) destroySubmodelRecursive(block.id);
+    });
     entry.tabEl?.remove();
     entry.workspaceEl.remove();
     submodelRegistry.delete(id);
     if (activeTabId === id) switchToTab('main');
-});
+}
+
+// Clean up when a submodel block is deleted from the canvas
+document.addEventListener('submodel-destroyed', e => destroySubmodelRecursive(e.detail.id));
 
 // Resize submodel stages when window resizes
 window.addEventListener('resize', () => {
@@ -316,16 +348,40 @@ window.addEventListener('resize', () => {
 document.addEventListener('submodel-open', e => openSubmodelTab(e.detail.block));
 
 /* ─────────────────────────────────────────
+   Inport / Outport deletion → update parent submodel block
+───────────────────────────────────────── */
+function syncSubmodelPorts(submodelBlock, type, newCount) {
+    if (!submodelBlock) return;
+    const ni = type === 'input'  ? newCount : submodelBlock.inputPorts.length;
+    const no = type === 'output' ? newCount : submodelBlock.outputPorts.length;
+    submodelBlock.resize(ni, no);
+    submodelBlock.stage.blockLayer?.batchDraw();
+    submodelBlock.stage.wireLayer?.batchDraw();
+}
+
+document.addEventListener('inport-deleted', e => {
+    const { submodelBlock } = e.detail;
+    if (submodelBlock) syncSubmodelPorts(submodelBlock, 'input', 0);
+});
+
+document.addEventListener('outport-deleted', e => {
+    const { submodelBlock } = e.detail;
+    if (submodelBlock) syncSubmodelPorts(submodelBlock, 'output', 0);
+});
+
+/* ─────────────────────────────────────────
    Submodel internals: serialize / deserialize
 ───────────────────────────────────────── */
 function serializeInternals(blocks, wires) {
     const bIdx = new Map(blocks.map((b, i) => [b, i]));
 
     const blockData = blocks.map(b => ({
-        Class:      b.constructor,
-        pos:        { x: b.renderer.x(), y: b.renderer.y() },
-        label:      b.label,
-        numOfPorts: [...b.numOfPorts],
+        Class:        b.constructor,
+        pos:          { x: b.renderer.x(), y: b.renderer.y() },
+        label:        b.label,
+        numOfPorts:   [...b.numOfPorts],
+        internalData: b.internalData ?? null,
+        portIndex:    b.portIndex ?? null,
     }));
 
     const wireData = wires.flatMap(wire => {
@@ -351,7 +407,7 @@ function populateSubmodelStage(subStage, data) {
     const { blockData, wireData } = data;
 
     const blocks = blockData.map(bd => {
-        const block = new bd.Class(subStage, { pos: bd.pos });
+        const block = new bd.Class(subStage, { pos: bd.pos, portIndex: bd.portIndex ?? 0 });
         // Restore label if it differs from the constructor default
         if (block.label !== bd.label && block.renderer.label) {
             block.label = bd.label;
@@ -362,6 +418,8 @@ function populateSubmodelStage(subStage, data) {
         if (block.numOfPorts[0] !== ni || block.numOfPorts[1] !== no) {
             block.resize(ni, no);
         }
+        // Restore nested submodel contents
+        if (bd.internalData != null) block.internalData = bd.internalData;
         return block;
     });
 
@@ -390,8 +448,13 @@ function populateSubmodelStage(subStage, data) {
 let submodelCounter = 0;
 
 function makeSubmodel() {
-    // Use all selected blocks, or fall back to the right-clicked block alone
-    const selected = stage.selectedItems.filter(item => item.inputPorts != null);
+    // Operate on whichever stage is currently visible
+    const activeStage = activeTabId === 'main'
+        ? stage
+        : (submodelRegistry.get(activeTabId)?.subStage ?? stage);
+
+    // Use all selected blocks on the active stage, or fall back to the right-clicked block
+    const selected = activeStage.selectedItems.filter(item => item.inputPorts != null);
     const targets  = selected.length > 0 ? selected : (contextMenuBlock ? [contextMenuBlock] : []);
     if (targets.length === 0) return;
 
@@ -431,6 +494,51 @@ function makeSubmodel() {
     // Capture internal state before deletion
     const internalData = serializeInternals(targets, [...internalWireSet]);
 
+    // Add one Inport block (N outputs) and one Outport block (M inputs)
+    const numIn  = inputConns.length;
+    const numOut = outputConns.length;
+    const centerY = (minY + maxY) / 2;
+
+    if (numIn > 0) {
+        const inportBi = internalData.blockData.length;
+        internalData.blockData.push({
+            Class:        BlockInport,
+            pos:          { x: minX - 120, y: centerY - Math.max(40, numIn * 20) / 2 },
+            label:        'In',
+            numOfPorts:   [0, numIn],
+            portIndex:    null,
+            internalData: null,
+        });
+        inputConns.forEach((conn, i) => {
+            const targetIdx = targets.indexOf(conn.internalPort.owner);
+            const portIdx   = conn.internalPort.owner.inputPorts.indexOf(conn.internalPort);
+            internalData.wireData.push({
+                s: { bi: inportBi,  pt: 'output', pi: i },
+                e: { bi: targetIdx, pt: 'input',  pi: portIdx },
+            });
+        });
+    }
+
+    if (numOut > 0) {
+        const outportBi = internalData.blockData.length;
+        internalData.blockData.push({
+            Class:        BlockOutport,
+            pos:          { x: maxX + 50, y: centerY - Math.max(40, numOut * 20) / 2 },
+            label:        'Out',
+            numOfPorts:   [numOut, 0],
+            portIndex:    null,
+            internalData: null,
+        });
+        outputConns.forEach((conn, i) => {
+            const targetIdx = targets.indexOf(conn.internalPort.owner);
+            const portIdx   = conn.internalPort.owner.outputPorts.indexOf(conn.internalPort);
+            internalData.wireData.push({
+                s: { bi: targetIdx, pt: 'output', pi: portIdx },
+                e: { bi: outportBi, pt: 'input',  pi: i },
+            });
+        });
+    }
+
     // Protect boundary wires: null out the internal-side port reference so
     // block.delete() won't destroy these wires (we'll re-route them below)
     [...inputConns, ...outputConns].forEach(conn => {
@@ -438,27 +546,25 @@ function makeSubmodel() {
         conn.internalPort.isConnected = false;
     });
 
-    // Delete selected blocks (cleans up internal wires + removes from stage)
-    stage.deselectAll();
+    // Delete selected blocks (cleans up internal wires + removes from active stage)
+    activeStage.deselectAll();
     [...targets].forEach(b => b.delete());
 
     // Create the submodel block at the bounding-box center
-    const numIn  = inputConns.length;
-    const numOut = outputConns.length;
     const subH   = Math.max(60, Math.max(numIn, numOut, 1) * 24 + 16);
     const subPos = {
         x: Math.round((minX + maxX) / 2 - 45),
         y: Math.round((minY + maxY) / 2 - subH / 2),
     };
 
-    const submodel = new BlockSubmodel(stage, {
+    const submodel = new BlockSubmodel(activeStage, {
         numInputs:    numIn,
         numOutputs:   numOut,
         pos:          subPos,
         internalData,
         label:        `Sub ${++submodelCounter}`,
     });
-    stage.add(submodel);
+    activeStage.add(submodel);
 
     // Re-route boundary wires: swap the internal port endpoint to the submodel port
     inputConns.forEach(({ externalCP, internalPort, wire }, i) => {
@@ -477,8 +583,8 @@ function makeSubmodel() {
         wire.renderer.updateOnDrag(externalCP);
     });
 
-    stage.blockLayer.batchDraw();
-    stage.wireLayer.batchDraw();
+    activeStage.blockLayer.batchDraw();
+    activeStage.wireLayer.batchDraw();
 }
 
 /* ─────────────────────────────────────────
@@ -558,25 +664,61 @@ const dlgOutputs   = document.getElementById('dlg-outputs');
 let   dialogBlock  = null;
 
 function openBlockDialog(block) {
-    dialogBlock      = block;
+    dialogBlock = block;
     dlgTitle.textContent = block.name + ' — Port Configuration';
-    dlgInputs.value  = block.numOfPorts[0];
-    dlgOutputs.value = block.numOfPorts[1];
-    blockDialog.classList.add('visible');
-    dlgInputs.focus();
-    dlgInputs.select();
+
+    if (block instanceof BlockInport) {
+        // Inport only configures its output count (= submodel inputs)
+        dlgInputs.value    = 0;
+        dlgInputs.disabled = true;
+        dlgOutputs.value   = block.numOfPorts[1];
+        dlgOutputs.disabled = false;
+        blockDialog.classList.add('visible');
+        dlgOutputs.focus();
+        dlgOutputs.select();
+    } else if (block instanceof BlockOutport) {
+        // Outport only configures its input count (= submodel outputs)
+        dlgInputs.value    = block.numOfPorts[0];
+        dlgInputs.disabled = false;
+        dlgOutputs.value   = 0;
+        dlgOutputs.disabled = true;
+        blockDialog.classList.add('visible');
+        dlgInputs.focus();
+        dlgInputs.select();
+    } else {
+        dlgInputs.value    = block.numOfPorts[0];
+        dlgInputs.disabled = false;
+        dlgOutputs.value   = block.numOfPorts[1];
+        dlgOutputs.disabled = false;
+        blockDialog.classList.add('visible');
+        dlgInputs.focus();
+        dlgInputs.select();
+    }
 }
 
 function closeBlockDialog() {
     blockDialog.classList.remove('visible');
+    dlgInputs.disabled  = false;
+    dlgOutputs.disabled = false;
     dialogBlock = null;
 }
 
 function applyBlockDialog() {
     if (!dialogBlock) return;
-    const inputs  = Math.max(1, parseInt(dlgInputs.value)  || 1);
-    const outputs = Math.max(1, parseInt(dlgOutputs.value) || 1);
-    dialogBlock.resize(inputs, outputs);
+
+    if (dialogBlock instanceof BlockInport) {
+        const outputs = Math.max(1, parseInt(dlgOutputs.value) || 1);
+        dialogBlock.resize(0, outputs);
+        syncSubmodelPorts(dialogBlock.parentSubmodelBlock, 'input', outputs);
+    } else if (dialogBlock instanceof BlockOutport) {
+        const inputs = Math.max(1, parseInt(dlgInputs.value) || 1);
+        dialogBlock.resize(inputs, 0);
+        syncSubmodelPorts(dialogBlock.parentSubmodelBlock, 'output', inputs);
+    } else {
+        const inputs  = Math.max(1, parseInt(dlgInputs.value)  || 1);
+        const outputs = Math.max(1, parseInt(dlgOutputs.value) || 1);
+        dialogBlock.resize(inputs, outputs);
+    }
     closeBlockDialog();
 }
 

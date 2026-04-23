@@ -249,12 +249,6 @@ export class Stage {
                 this.blocks.forEach(b => b.renderer.draggable(false));
             }
 
-            if (e.code === 'Delete' || e.code === 'Backspace') {
-                e.preventDefault();
-                this.deleteSelected();
-            }
-
-
         });
 
         document.addEventListener('keyup', e => {
