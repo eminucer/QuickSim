@@ -9,6 +9,11 @@ import { BlockConstant }   from "./components/Block/BlockConstant.js";
 import { BlockStep }       from "./components/Block/BlockStep.js";
 import { BlockSinusoidal } from "./components/Block/BlockSinusoidal.js";
 import { BlockRamp }       from "./components/Block/BlockRamp.js";
+import { BlockTriangle }   from "./components/Block/BlockTriangle.js";
+import { BlockPulse }      from "./components/Block/BlockPulse.js";
+import { BlockSquare }     from "./components/Block/BlockSquare.js";
+import { BlockClock }      from "./components/Block/BlockClock.js";
+import { BlockSawtooth }   from "./components/Block/BlockSawtooth.js";
 import { BlockDisplay }    from "./components/Block/BlockDisplay.js";
 import { BlockSubmodel }   from "./components/Block/BlockSubmodel.js";
 import { BlockInport }     from "./components/Block/BlockInport.js";
@@ -20,10 +25,15 @@ import { WireSegment }     from "./components/Wire/WireSegment.js";
 ───────────────────────────────────────── */
 const CATALOGUE = [
     { label: 'Sources', items: [
-        { Class: BlockConstant,  name: 'Constant',   type: 'Source' },
-        { Class: BlockStep,      name: 'Unit Step',  type: 'Source' },
-        { Class: BlockSinusoidal,name: 'Sinusoidal', type: 'Source' },
-        { Class: BlockRamp,      name: 'Ramp',       type: 'Source' },
+        { Class: BlockConstant,  name: 'Constant',    type: 'Source' },
+        { Class: BlockStep,      name: 'Unit Step',   type: 'Source' },
+        { Class: BlockRamp,      name: 'Ramp',        type: 'Source' },
+        { Class: BlockSinusoidal,name: 'Sinusoidal',  type: 'Source' },
+        { Class: BlockTriangle,  name: 'Triangle',    type: 'Source' },
+        { Class: BlockSquare,    name: 'Square Wave', type: 'Source' },
+        { Class: BlockSawtooth,  name: 'Sawtooth',    type: 'Source' },
+        { Class: BlockPulse,     name: 'Pulse',       type: 'Source' },
+        { Class: BlockClock,     name: 'Clock',       type: 'Source' },
     ]},
     { label: 'Math', items: [
         { Class: BlockAdd,       name: 'Add',        type: 'Operator' },

@@ -1,12 +1,12 @@
 import { Block } from "./Block.js";
 import { SignalIconRenderer } from "./SignalIconRenderer.js";
 
-export class BlockStep extends Block {
-    static signalShape = 'step';
+export class BlockSquare extends Block {
+    static signalShape = 'square';
 
     constructor(stage, params = {}) {
         super(stage, {
-            name:        'Unit Step',
+            name:        'Square Wave',
             type:        'source',
             numOfPorts:  [0, 1],
             size:        { width: 72, height: 48 },
