@@ -89,9 +89,13 @@ export class Block {
         this.renderer.rotate();
     }
 
+    // Subclasses override this to use their own slot sizing.
+    _computeHeight(numInputs, numOutputs) {
+        return Math.max(40, Math.max(numInputs, numOutputs) * 20);
+    }
+
     resize(numInputs, numOutputs) {
-        const MIN_SLOT = 20;
-        const newH = Math.max(40, Math.max(numInputs, numOutputs) * MIN_SLOT);
+        const newH = this._computeHeight(numInputs, numOutputs);
 
         const prevInputCount  = this.inputPorts.length;
         const prevOutputCount = this.outputPorts.length;

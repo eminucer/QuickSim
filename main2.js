@@ -99,6 +99,10 @@ const CATALOGUE = [
         { Class: BlockMux,   name: 'Mux',   type: 'Routing' },
         { Class: BlockDemux, name: 'Demux', type: 'Routing' },
     ]},
+    { label: 'Ports', items: [
+        { Class: BlockInport,  name: 'Inport',  type: 'Submodel only' },
+        { Class: BlockOutport, name: 'Outport', type: 'Submodel only' },
+    ]},
 ];
 
 // Flat map for quick lookup during drop
@@ -280,6 +284,19 @@ searchInput.addEventListener('keydown', e => {
 });
 
 /* ─────────────────────────────────────────
+   Toast
+───────────────────────────────────────── */
+const toastEl = document.getElementById('toast');
+let _toastTimer = null;
+
+function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('visible');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => toastEl.classList.remove('visible'), 2600);
+}
+
+/* ─────────────────────────────────────────
    Drag & drop from palette to canvas
 ───────────────────────────────────────── */
 let dragType = null;
@@ -298,19 +315,52 @@ workspacesEl.addEventListener('drop', e => {
     e.preventDefault();
     if (!dragType || !BLOCK_CLASS_MAP[dragType]) return;
 
+    const isInport  = dragType === 'Inport';
+    const isOutport = dragType === 'Outport';
+    const isPortBlock = isInport || isOutport;
+
+    // Port blocks are submodel-only
+    if (isPortBlock && activeTabId === 'main') {
+        showToast('In/Out blocks can only be placed inside a submodel');
+        dragType = null;
+        return;
+    }
+
     const activeStage = activeTabId === 'main'
         ? stage
         : submodelRegistry.get(activeTabId)?.subStage;
-    if (!activeStage) return;
+    if (!activeStage) { dragType = null; return; }
+
+    // Enforce one Inport / one Outport per submodel
+    if (isPortBlock) {
+        const duplicate = activeStage.blocks.some(b =>
+            isInport ? b instanceof BlockInport : b instanceof BlockOutport
+        );
+        if (duplicate) {
+            showToast(`This submodel already has an ${isInport ? 'In' : 'Out'} block`);
+            dragType = null;
+            return;
+        }
+    }
 
     const rect = workspacesEl.getBoundingClientRect();
-    const screenX = e.clientX - rect.left;
-    const screenY = e.clientY - rect.top;
+    const worldPos = activeStage.screenToWorld(
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+    );
 
-    const worldPos = activeStage.screenToWorld(screenX, screenY);
     const BlockClass = BLOCK_CLASS_MAP[dragType];
     const block = new BlockClass(activeStage, { pos: worldPos });
     activeStage.add(block);
+
+    // Link port block to its parent submodel and add the corresponding port
+    if (isPortBlock) {
+        const entry = submodelRegistry.get(activeTabId);
+        if (entry?.submodelBlock) {
+            block.parentSubmodelBlock = entry.submodelBlock;
+            syncSubmodelPorts(entry.submodelBlock, isInport ? 'input' : 'output', 1);
+        }
+    }
 
     dragType = null;
 });
@@ -439,7 +489,7 @@ function openSubmodelTab(block) {
     tabEl.addEventListener('click', () => switchToTab(id));
     tabBar.appendChild(tabEl);
 
-    submodelRegistry.set(id, { tabEl, workspaceEl: wsEl, subStage });
+    submodelRegistry.set(id, { tabEl, workspaceEl: wsEl, subStage, submodelBlock: block });
     switchToTab(id);
 }
 
