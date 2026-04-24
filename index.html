@@ -94,12 +94,80 @@
             font-weight: 500;
         }
 
+        /* ── Palette search ── */
+        #palette-search-wrap {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--sidebar-border);
+            flex-shrink: 0;
+        }
+
+        #palette-search-box {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(0,0,0,0.25);
+            border: 1px solid var(--sidebar-border);
+            border-radius: 7px;
+            padding: 0 8px;
+            transition: border-color 0.15s;
+        }
+
+        #palette-search-box:focus-within {
+            border-color: var(--accent);
+        }
+
+        #palette-search-box .search-icon {
+            color: var(--category-color);
+            flex-shrink: 0;
+        }
+
+        #palette-search {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--item-text);
+            font-size: 12px;
+            padding: 7px 0;
+            min-width: 0;
+        }
+
+        #palette-search::placeholder { color: var(--category-color); }
+
+        #palette-search-clear {
+            background: none;
+            border: none;
+            color: var(--category-color);
+            font-size: 16px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0 2px;
+            display: none;
+            flex-shrink: 0;
+        }
+
+        #palette-search-clear:hover { color: var(--item-text); }
+
         /* ── Palette ── */
         #palette {
             flex: 1;
             overflow-y: auto;
             overflow-x: hidden;
             padding: 8px 0 16px;
+        }
+
+        #palette-no-results {
+            display: none;
+            padding: 20px 16px;
+            text-align: center;
+            font-size: 11.5px;
+            color: var(--category-color);
+            line-height: 1.6;
+        }
+
+        #palette-no-results strong {
+            color: var(--item-subtext);
+            font-weight: 600;
         }
 
         #palette::-webkit-scrollbar { width: 4px; }
@@ -388,6 +456,66 @@
         .ctx-item.danger { color: #dc2626; }
         .ctx-item.danger:hover { background: #fef2f2; }
 
+        .ctx-divider {
+            height: 1px;
+            background: #e2e8f0;
+            margin: 4px 0;
+        }
+
+        .ctx-count-label {
+            padding: 4px 12px 2px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .ctx-stepper-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px 8px;
+        }
+
+        .ctx-stepper-btn {
+            width: 26px;
+            height: 26px;
+            border-radius: 5px;
+            border: 1px solid #e2e8f0;
+            background: #f1f5f9;
+            color: #334155;
+            font-size: 16px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.1s, border-color 0.1s;
+            flex-shrink: 0;
+        }
+
+        .ctx-stepper-btn:hover { background: #dbeafe; border-color: #93c5fd; }
+        .ctx-stepper-btn:disabled { opacity: 0.35; cursor: default; }
+
+        .ctx-stepper-input {
+            width: 44px;
+            height: 26px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+            border-radius: 5px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #1e293b;
+            outline: none;
+            -moz-appearance: textfield;
+        }
+
+        .ctx-stepper-input::-webkit-inner-spin-button,
+        .ctx-stepper-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+        .ctx-stepper-input:focus { border-color: #3B82F6; box-shadow: 0 0 0 2px rgba(59,130,246,0.18); }
+
         /* ── Block properties dialog ── */
         .dialog-overlay {
             display: none;
@@ -475,8 +603,18 @@
                 <span class="app-name">QuickSim</span>
                 <span class="app-version">v0.1</span>
             </div>
+            <div id="palette-search-wrap">
+                <div id="palette-search-box">
+                    <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input id="palette-search" type="text" placeholder="Search blocks…" autocomplete="off" spellcheck="false">
+                    <button id="palette-search-clear" aria-label="Clear search">&#x2715;</button>
+                </div>
+            </div>
             <div id="palette">
-                <!-- Populated by main2.js -->
+                <div id="palette-no-results">No results for <strong id="no-results-query"></strong></div>
+                <!-- Categories populated by main2.js -->
             </div>
         </div>
 
@@ -528,6 +666,15 @@
         <div class="ctx-item danger" id="ctx-delete">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
             Delete Block
+        </div>
+        <div id="ctx-port-count-section" style="display:none">
+            <div class="ctx-divider"></div>
+            <div class="ctx-count-label" id="ctx-port-count-label">Input count</div>
+            <div class="ctx-stepper-row">
+                <button class="ctx-stepper-btn" id="ctx-count-dec">−</button>
+                <input  class="ctx-stepper-input" id="ctx-count-value" type="number" min="2" max="20" value="2">
+                <button class="ctx-stepper-btn" id="ctx-count-inc">+</button>
+            </div>
         </div>
     </div>
 

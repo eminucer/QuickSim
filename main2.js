@@ -3,8 +3,31 @@ import { Stage }           from "./components/Stage/Stage.js";
 import { BlockAdd }        from "./components/Block/BlockAdd.js";
 import { BlockMultiply }   from "./components/Block/BlockMultiply.js";
 import { BlockDivide }     from "./components/Block/BlockDivide.js";
-import { BlockIntegrator } from "./components/Block/BlockIntegrator.js";
 import { BlockGain }       from "./components/Block/BlockGain.js";
+import { BlockSqrt }       from "./components/Block/BlockSqrt.js";
+import { BlockAbs }        from "./components/Block/BlockAbs.js";
+import { BlockExp }        from "./components/Block/BlockExp.js";
+import { BlockLog }        from "./components/Block/BlockLog.js";
+import { BlockLog10 }      from "./components/Block/BlockLog10.js";
+import { BlockSin }        from "./components/Block/BlockSin.js";
+import { BlockCos }        from "./components/Block/BlockCos.js";
+import { BlockTan }        from "./components/Block/BlockTan.js";
+import { BlockAsin }       from "./components/Block/BlockAsin.js";
+import { BlockAcos }       from "./components/Block/BlockAcos.js";
+import { BlockAtan }       from "./components/Block/BlockAtan.js";
+import { BlockPower }      from "./components/Block/BlockPower.js";
+import { BlockMod }        from "./components/Block/BlockMod.js";
+import { BlockFunction }   from "./components/Block/BlockFunction.js";
+import { BlockIntegrator }       from "./components/Block/BlockIntegrator.js";
+import { BlockDifferentiator }   from "./components/Block/BlockDifferentiator.js";
+import { BlockDelay }            from "./components/Block/BlockDelay.js";
+import { BlockODE }              from "./components/Block/BlockODE.js";
+import { BlockStateSpace }       from "./components/Block/BlockStateSpace.js";
+import { BlockRateLimiter }      from "./components/Block/BlockRateLimiter.js";
+import { BlockPID }              from "./components/Block/BlockPID.js";
+import { BlockTransferFunction } from "./components/Block/BlockTransferFunction.js";
+import { BlockLPF }              from "./components/Block/BlockLPF.js";
+import { BlockHPF }              from "./components/Block/BlockHPF.js";
 import { BlockConstant }   from "./components/Block/BlockConstant.js";
 import { BlockStep }       from "./components/Block/BlockStep.js";
 import { BlockSinusoidal } from "./components/Block/BlockSinusoidal.js";
@@ -18,6 +41,8 @@ import { BlockDisplay }    from "./components/Block/BlockDisplay.js";
 import { BlockSubmodel }   from "./components/Block/BlockSubmodel.js";
 import { BlockInport }     from "./components/Block/BlockInport.js";
 import { BlockOutport }    from "./components/Block/BlockOutport.js";
+import { BlockMux }        from "./components/Block/BlockMux.js";
+import { BlockDemux }      from "./components/Block/BlockDemux.js";
 import { WireSegment }     from "./components/Wire/WireSegment.js";
 
 /* ─────────────────────────────────────────
@@ -35,15 +60,44 @@ const CATALOGUE = [
         { Class: BlockPulse,     name: 'Pulse',       type: 'Source' },
         { Class: BlockClock,     name: 'Clock',       type: 'Source' },
     ]},
-    { label: 'Math', items: [
-        { Class: BlockAdd,       name: 'Add',        type: 'Operator' },
-        { Class: BlockMultiply,  name: 'Multiply',   type: 'Operator' },
-        { Class: BlockDivide,    name: 'Divide',     type: 'Operator' },
-        { Class: BlockIntegrator,name: 'Integrator', type: 'Dynamic' },
-        { Class: BlockGain,      name: 'Gain',       type: 'Transfer' },
+    { label: 'Algebraic', items: [
+        { Class: BlockAdd,      name: 'Add',      type: 'Algebraic' },
+        { Class: BlockMultiply, name: 'Multiply', type: 'Algebraic' },
+        { Class: BlockDivide,   name: 'Divide',   type: 'Algebraic' },
+        { Class: BlockGain,     name: 'Gain',     type: 'Algebraic' },
+        { Class: BlockAbs,      name: 'Abs',      type: 'Algebraic' },
+        { Class: BlockSqrt,     name: 'Sqrt',     type: 'Algebraic' },
+        { Class: BlockExp,      name: 'Exp',      type: 'Algebraic' },
+        { Class: BlockLog,      name: 'Log',      type: 'Algebraic' },
+        { Class: BlockLog10,    name: 'Log10',    type: 'Algebraic' },
+        { Class: BlockPower,    name: 'Power',    type: 'Algebraic' },
+        { Class: BlockMod,      name: 'Mod',      type: 'Algebraic' },
+        { Class: BlockSin,      name: 'Sin',      type: 'Algebraic' },
+        { Class: BlockCos,      name: 'Cos',      type: 'Algebraic' },
+        { Class: BlockTan,      name: 'Tan',      type: 'Algebraic' },
+        { Class: BlockAsin,     name: 'Asin',     type: 'Algebraic' },
+        { Class: BlockAcos,     name: 'Acos',     type: 'Algebraic' },
+        { Class: BlockAtan,     name: 'Atan',     type: 'Algebraic' },
+        { Class: BlockFunction, name: 'Function', type: 'Algebraic' },
+    ]},
+    { label: 'Dynamics', items: [
+        { Class: BlockIntegrator,      name: 'Integrator',       type: 'Dynamic' },
+        { Class: BlockDifferentiator,  name: 'Differentiator',   type: 'Dynamic' },
+        { Class: BlockDelay,           name: 'Delay',            type: 'Dynamic' },
+        { Class: BlockTransferFunction,name: 'TransferFunction', type: 'Dynamic' },
+        { Class: BlockStateSpace,      name: 'StateSpace',       type: 'Dynamic' },
+        { Class: BlockODE,             name: 'ODE',              type: 'Dynamic' },
+        { Class: BlockPID,             name: 'PID',              type: 'Dynamic' },
+        { Class: BlockLPF,             name: 'LPF',              type: 'Dynamic' },
+        { Class: BlockHPF,             name: 'HPF',              type: 'Dynamic' },
+        { Class: BlockRateLimiter,     name: 'RateLimiter',      type: 'Dynamic' },
     ]},
     { label: 'Sinks', items: [
         { Class: BlockDisplay,   name: 'Display',    type: 'Sink' },
+    ]},
+    { label: 'Routing', items: [
+        { Class: BlockMux,   name: 'Mux',   type: 'Routing' },
+        { Class: BlockDemux, name: 'Demux', type: 'Routing' },
     ]},
 ];
 
@@ -151,6 +205,78 @@ CATALOGUE.forEach(cat => {
         const paletteItem = buildPaletteItem(url, name, type);
         itemsEl.appendChild(paletteItem);
     });
+});
+
+/* ─────────────────────────────────────────
+   Palette search
+───────────────────────────────────────── */
+// Build a flat index of every palette item for O(n) filtering
+const paletteIndex = [];
+paletteEl.querySelectorAll('.palette-category').forEach(catEl => {
+    catEl.querySelectorAll('.palette-item').forEach(itemEl => {
+        paletteIndex.push({
+            el:    itemEl,
+            name:  itemEl.dataset.blockType.toLowerCase(),
+            catEl,
+        });
+    });
+});
+
+const searchInput    = document.getElementById('palette-search');
+const searchClear    = document.getElementById('palette-search-clear');
+const noResultsEl    = document.getElementById('palette-no-results');
+const noResultsQuery = document.getElementById('no-results-query');
+
+function filterPalette(raw) {
+    const q = raw.trim().toLowerCase();
+
+    searchClear.style.display = raw.length ? 'block' : 'none';
+
+    if (!q) {
+        paletteIndex.forEach(({ el, catEl }) => {
+            el.style.display  = '';
+            catEl.style.display = '';
+        });
+        noResultsEl.style.display = 'none';
+        return;
+    }
+
+    // Track which categories have at least one visible item
+    const catHasMatch = new Map();
+    let anyMatch = false;
+
+    paletteIndex.forEach(({ el, name, catEl }) => {
+        const match = name.includes(q);
+        el.style.display = match ? '' : 'none';
+        if (match) {
+            anyMatch = true;
+            catHasMatch.set(catEl, true);
+        } else if (!catHasMatch.has(catEl)) {
+            catHasMatch.set(catEl, false);
+        }
+    });
+
+    catHasMatch.forEach((visible, catEl) => {
+        catEl.style.display = visible ? '' : 'none';
+    });
+
+    noResultsEl.style.display      = anyMatch ? 'none' : 'block';
+    noResultsQuery.textContent = `"${raw.trim()}"`;
+}
+
+searchInput.addEventListener('input', () => filterPalette(searchInput.value));
+
+searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    filterPalette('');
+    searchInput.focus();
+});
+
+searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        searchInput.value = '';
+        filterPalette('');
+    }
 });
 
 /* ─────────────────────────────────────────
@@ -603,11 +729,70 @@ function makeSubmodel() {
 const contextMenu = document.getElementById('context-menu');
 let contextMenuBlock = null;
 
+const portCountSection = document.getElementById('ctx-port-count-section');
+const portCountLabel   = document.getElementById('ctx-port-count-label');
+const countValueInput  = document.getElementById('ctx-count-value');
+const countDecBtn      = document.getElementById('ctx-count-dec');
+const countIncBtn      = document.getElementById('ctx-count-inc');
+
+function applyPortCount(count) {
+    if (!contextMenuBlock) return;
+    count = Math.max(2, Math.min(20, count));
+    if (contextMenuBlock instanceof BlockMux) {
+        contextMenuBlock.resize(count, 1);
+    } else if (contextMenuBlock instanceof BlockDemux) {
+        contextMenuBlock.resize(1, count);
+    }
+    syncStepperState(count);
+}
+
+function syncStepperState(count) {
+    countValueInput.value = count;
+    countDecBtn.disabled  = count <= 2;
+    countIncBtn.disabled  = count >= 20;
+}
+
+countDecBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    applyPortCount(parseInt(countValueInput.value) - 1);
+});
+
+countIncBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    applyPortCount(parseInt(countValueInput.value) + 1);
+});
+
+countValueInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+        e.stopPropagation();
+        applyPortCount(parseInt(countValueInput.value));
+        contextMenu.classList.remove('visible');
+        contextMenuBlock = null;
+    }
+});
+
+// Prevent the document click-to-close handler from firing on stepper interactions
+countValueInput.addEventListener('click', e => e.stopPropagation());
+
 document.addEventListener('block-contextmenu', e => {
-    contextMenuBlock      = e.detail.block;
+    contextMenuBlock = e.detail.block;
+
+    if (contextMenuBlock instanceof BlockMux) {
+        portCountLabel.textContent = 'Input count';
+        portCountSection.style.display = 'block';
+        syncStepperState(contextMenuBlock.numOfPorts[0]);
+    } else if (contextMenuBlock instanceof BlockDemux) {
+        portCountLabel.textContent = 'Output count';
+        portCountSection.style.display = 'block';
+        syncStepperState(contextMenuBlock.numOfPorts[1]);
+    } else {
+        portCountSection.style.display = 'none';
+    }
+
     contextMenu.style.left = e.detail.x + 'px';
     contextMenu.style.top  = e.detail.y + 'px';
     contextMenu.classList.add('visible');
+    if (portCountSection.style.display !== 'none') countValueInput.focus();
 });
 
 document.getElementById('ctx-rotate').addEventListener('click', () => {

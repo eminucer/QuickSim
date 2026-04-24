@@ -418,8 +418,33 @@ export class Stage {
                 junction.renderer.radius(7);
             }
         });
-        if (this.wireLayer) this.wireLayer.batchDraw();
 
+        // Select wires whose both endpoints are inside the selection.
+        // A wire endpoint is "inside" when its owner (block or junction) was selected above.
+        const selectedSet  = new Set(this.selectedItems);
+        const wiresToSelect = new Set();
+
+        this.selectedItems
+            .filter(item => item.inputPorts) // blocks only
+            .forEach(block => {
+                [...block.inputPorts, ...block.outputPorts].forEach(port => {
+                    const wire = port.wire;
+                    if (!wire || wiresToSelect.has(wire)) return;
+                    const otherCP = wire.cps.start === port ? wire.cps.end : wire.cps.start;
+                    if (!otherCP) return;
+                    // Junctions are stored directly in selectedItems; ports resolve to their owner block.
+                    const otherOwner = (otherCP.params?.type === 'cp') ? otherCP : otherCP.owner;
+                    if (selectedSet.has(otherOwner)) wiresToSelect.add(wire);
+                });
+            });
+
+        wiresToSelect.forEach(wire => {
+            wire.isSelected = true;
+            this.selectedItems.push(wire);
+            wire.renderer.highlight();
+        });
+
+        if (this.wireLayer) this.wireLayer.batchDraw();
         this._updateSelectionBounds();
     }
 
@@ -439,6 +464,18 @@ export class Stage {
             maxX = Math.max(maxX, r.x + r.width);
             maxY = Math.max(maxY, r.y + r.height);
         });
+
+        // Expand bounds to cover selected wire paths (world-coordinate points).
+        this.selectedItems
+            .filter(item => item.renderer?._pts)
+            .forEach(wire => {
+                wire.renderer._pts.forEach(({ x, y }) => {
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                });
+            });
 
         const PAD = 8;
         this._marqueeRect.setAttrs({
