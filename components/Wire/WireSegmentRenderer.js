@@ -294,13 +294,9 @@ export class WireSegmentRenderer extends Konva.Group {
             if (this._dragging) return;
             const mousePos = this.stage.getWorldPointerPosition();
             if (!mousePos || !this._pts) { document.body.style.cursor = 'pointer'; return; }
-            let idx = this._closestSegmentIdx(mousePos);
+            const idx = this._closestSegmentIdx(mousePos);
             if (idx >= 0) {
-                // Jog segments at either end redirect to their adjacent draggable segment,
-                // so the cursor reflects the actual drag direction the user will experience.
-                const n = this._pts.length;
-                if      (idx === 0     && !this._isHSeg(this._pts, 0))     idx = 1;
-                else if (idx === n - 2 && !this._isHSeg(this._pts, n - 2)) idx = n - 3;
+                // All segments show a drag cursor — stubs get a knee inserted on drag
                 document.body.style.cursor = this._isHSeg(this._pts, idx) ? 'ns-resize' : 'ew-resize';
             } else {
                 document.body.style.cursor = 'pointer';
@@ -393,24 +389,11 @@ export class WireSegmentRenderer extends Konva.Group {
     ═══════════════════════════════════════ */
 
     _startSegmentDrag(segIdx, startPos) {
+        // If the user clicked a port stub (first or last segment), insert a knee
+        // right next to the port so the segment becomes freely draggable.
         const n = this._pts.length;
-        if (segIdx === 0) {
-            if (this._isHSeg(this._pts, 0)) {
-                // Horizontal port stub — insert a knee so it can be dragged freely.
-                segIdx = this._insertKneeForStub(0);
-            } else {
-                // Vertical jog at start (junction branch) — redirect to the next segment,
-                // which stretches/shrinks the jog naturally as the user drags.
-                segIdx = 1;
-            }
-        } else if (segIdx === n - 2) {
-            if (this._isHSeg(this._pts, n - 2)) {
-                // Horizontal port stub — insert a knee so it can be dragged freely.
-                segIdx = this._insertKneeForStub(n - 2);
-            } else {
-                // Vertical jog at end — redirect to the segment before the jog.
-                segIdx = n - 3;
-            }
+        if (segIdx === 0 || segIdx === n - 2) {
+            segIdx = this._insertKneeForStub(segIdx);
         }
 
         this._dragging     = true;
@@ -554,8 +537,6 @@ export class WireSegmentRenderer extends Konva.Group {
      * Collinear intermediate points are removed so the result is always minimal.
      */
     _getWirePoints(startPos, endPos, startCP = null, endCP = null) {
-        this._routeSegs = this._collectWireSegs();
-
         const sx = startPos.x, sy = startPos.y;
         const ex = endPos.x,   ey = endPos.y;
         const STUB = 24, GAP = 10;
@@ -566,16 +547,9 @@ export class WireSegmentRenderer extends Konva.Group {
         const startDir = this._portExitDir(startCP, endPos);
         const endDir   = this._portExitDir(endCP,   startPos);
 
-        // Stub end-points: where the wire first clears the block.
-        // If the stub would overlap an existing wire seg, a perpendicular jog
-        // is inserted right at the connection point so branches diverge immediately.
-        let [ax, ay] = this._stubEnd(sx, sy, startDir, STUB);
-        let [bx, by] = this._stubEnd(ex, ey, endDir,   STUB);
-
-        const startJog = this._stubJog(sx, sy, ax, ay, startDir);
-        const endJog   = this._stubJog(ex, ey, bx, by, endDir);
-        if (startJog !== null) ay = startJog;
-        if (endJog   !== null) by = endJog;
+        // Stub end-points: where the wire first clears the block
+        const [ax, ay] = this._stubEnd(sx, sy, startDir, STUB);
+        const [bx, by] = this._stubEnd(ex, ey, endDir,   STUB);
 
         const obstacles = this._getObstacles(startCP, endCP);
         const allRects  = (this.stage?.blocks ?? [])
@@ -599,19 +573,7 @@ export class WireSegmentRenderer extends Konva.Group {
             inner = [ax, by];
         }
 
-        // Build the flat point array, inserting jog intermediates where needed.
-        // A start jog: (sx,sy)→(sx,jogY)→(ax,jogY)→...   [short V then H stub]
-        // An end jog:  ...→(bx,jogY)→(ex,jogY)→(ex,ey)   [H stub then short V]
-        const startSeg = startJog !== null
-            ? [sx, sy, sx, startJog, ax, startJog]
-            : [sx, sy, ax, ay];
-        const endSeg = endJog !== null
-            ? [bx, endJog, ex, endJog, ex, ey]
-            : [bx, by, ex, ey];
-
-        const result = this._cleanPath([...startSeg, ...inner, ...endSeg]);
-        this._routeSegs = null;
-        return result;
+        return this._cleanPath([sx, sy, ax, ay, ...inner, bx, by, ex, ey]);
     }
 
     /**
@@ -668,20 +630,12 @@ export class WireSegmentRenderer extends Konva.Group {
     /**
      * Route between two horizontal-stub end-points.
      * Natural forward (right→left, ax≤bx): single V segment at bestMidX → H-V-H.
-     * Falls back to U-shape (H-V-H-V-H) if any horizontal leg would cross an obstacle.
-     * All other cases: U-shape with bestMidY bridge.
+     * All other cases (backward, same direction): single H bridge at bestMidY → H-V-H-V-H.
      */
     _routeHH(ax, ay, bx, by, startDir, endDir, obstacles, allRects, gap) {
         if (startDir === 'right' && endDir === 'left' && ax <= bx) {
             const midX = this._bestMidX(ax, bx, ay, by, obstacles, gap);
-            const hBlocked = obstacles.some(b => {
-                const r = this._blockRect(b);
-                return r && (
-                    this._hSegHits(ay, Math.min(ax, midX), Math.max(ax, midX), r, gap) ||
-                    this._hSegHits(by, Math.min(midX, bx), Math.max(midX, bx), r, gap)
-                );
-            });
-            if (!hBlocked) return [midX, ay, midX, by];
+            return [midX, ay, midX, by];
         }
         const midY = this._bestMidY(ax, bx, (ay + by) / 2, allRects, gap);
         return [ax, midY, bx, midY];
@@ -690,20 +644,12 @@ export class WireSegmentRenderer extends Konva.Group {
     /**
      * Route between two vertical-stub end-points.
      * Natural forward (down→up, ay≤by): single H segment at bestMidY → V-H-V.
-     * Falls back to wide routing (V-H-V-H-V) if any vertical leg would cross an obstacle.
-     * All other cases: wide routing with bestMidX bridge.
+     * All other cases: single V bridge at bestMidX → V-H-V-H-V.
      */
     _routeVV(ax, ay, bx, by, startDir, endDir, obstacles, allRects, gap) {
         if (startDir === 'down' && endDir === 'up' && ay <= by) {
             const midY = this._bestMidY(ax, bx, (ay + by) / 2, allRects, gap);
-            const vBlocked = obstacles.some(b => {
-                const r = this._blockRect(b);
-                return r && (
-                    this._vSegHits(ax, Math.min(ay, midY), Math.max(ay, midY), r, gap) ||
-                    this._vSegHits(bx, Math.min(midY, by), Math.max(midY, by), r, gap)
-                );
-            });
-            if (!vBlocked) return [ax, midY, bx, midY];
+            return [ax, midY, bx, midY];
         }
         const midX = this._bestMidX(
             Math.min(ax, bx), Math.max(ax, bx),
@@ -755,38 +701,10 @@ export class WireSegmentRenderer extends Konva.Group {
     }
 
     /**
-     * If the stub from (px,py)→(ax,ay) overlaps an existing wire segment,
-     * return a perpendicular offset coordinate so the wire branches immediately.
-     *   Horizontal stub (right/left): returns new y, or null if no jog needed.
-     *   Vertical stub   (up/down):    returns new x, or null if no jog needed.
-     */
-    _stubJog(px, py, ax, ay, dir) {
-        if (!this._routeSegs) return null;
-        const isH = dir === 'right' || dir === 'left';
-        if (isH) {
-            const xLo = Math.min(px, ax), xHi = Math.max(px, ax);
-            const newY = this._firstFreeY(py, xLo, xHi, this._routeSegs.hSegs, 8, 8);
-            return newY !== py ? newY : null;
-        } else {
-            const yLo = Math.min(py, ay), yHi = Math.max(py, ay);
-            const newX = this._firstFreeX(px, yLo, yHi, this._routeSegs.vSegs, 8, 8);
-            return newX !== px ? newX : null;
-        }
-    }
-
-    /**
      * Find the best x for the vertical segment of a forward H-V-H wire.
      * Tries the centre, then shifts around obstacle clusters, then scans.
-     * After block-obstacle avoidance, nudges away from any overlapping wire segment.
      */
     _bestMidX(ax, bx, sy, ey, obstacles, gap) {
-        const x = this._bestBlockMidX(ax, bx, sy, ey, obstacles, gap);
-        if (!this._routeSegs) return x;
-        const yLo = Math.min(sy, ey), yHi = Math.max(sy, ey);
-        return this._firstFreeX(x, yLo, yHi, this._routeSegs.vSegs);
-    }
-
-    _bestBlockMidX(ax, bx, sy, ey, obstacles, gap) {
         const defaultX = (ax + bx) / 2;
         if (obstacles.length === 0) return defaultX;
 
@@ -827,16 +745,8 @@ export class WireSegmentRenderer extends Konva.Group {
     /**
      * Find the best y for the middle horizontal segment of a backward wire.
      * `allRects` should include all block rects (even start/end).
-     * After block-obstacle avoidance, nudges away from any overlapping wire segment.
      */
     _bestMidY(ax, bx, defaultY, allRects, gap) {
-        const y = this._bestBlockMidY(ax, bx, defaultY, allRects, gap);
-        if (!this._routeSegs) return y;
-        const xLo = Math.min(ax, bx), xHi = Math.max(ax, bx);
-        return this._firstFreeY(y, xLo, xHi, this._routeSegs.hSegs);
-    }
-
-    _bestBlockMidY(ax, bx, defaultY, allRects, gap) {
         const xLo = Math.min(ax, bx), xHi = Math.max(ax, bx);
 
         const blocking = allRects.filter(r => this._hSegHits(defaultY, xLo, xHi, r, gap));
@@ -866,58 +776,6 @@ export class WireSegmentRenderer extends Konva.Group {
     _hSegHits(y, xLo, xHi, r, gap) {
         return y > r.y - gap && y < r.y + r.height + gap &&
                xLo < r.x + r.width + gap && xHi > r.x - gap;
-    }
-
-    /**
-     * Collect all existing wire segments (horizontal + vertical) from other wires
-     * into two arrays so routing can avoid perfect overlaps.
-     */
-    _collectWireSegs() {
-        const hSegs = [], vSegs = [], seen = new Set();
-        const addWire = (wire) => {
-            if (!wire || wire === this.owner || seen.has(wire)) return;
-            seen.add(wire);
-            const pts = wire.renderer?._pts;
-            if (!pts || pts.length < 2) return;
-            for (let i = 0; i < pts.length - 1; i++) {
-                const a = pts[i], b = pts[i + 1];
-                if (Math.abs(a.y - b.y) < 0.5)
-                    hSegs.push({ y: a.y, xLo: Math.min(a.x, b.x), xHi: Math.max(a.x, b.x) });
-                else if (Math.abs(a.x - b.x) < 0.5)
-                    vSegs.push({ x: a.x, yLo: Math.min(a.y, b.y), yHi: Math.max(a.y, b.y) });
-            }
-        };
-        (this.stage?.blocks ?? []).forEach(b =>
-            [...b.inputPorts, ...b.outputPorts].forEach(p => addWire(p.wire)));
-        (this.stage?.junctions ?? []).forEach(j =>
-            (j.wires ?? []).forEach(w => addWire(w)));
-        return { hSegs, vSegs };
-    }
-
-    /** Find the first x position (near `x`) not overlapping any existing vertical wire segment. */
-    _firstFreeX(x, yLo, yHi, vSegs, step = 6, maxTries = 8) {
-        const TOL = 2;
-        const hits = cx => vSegs.some(s =>
-            Math.abs(s.x - cx) < TOL && s.yLo < yHi - TOL && s.yHi > yLo + TOL);
-        if (!hits(x)) return x;
-        for (let i = 1; i <= maxTries; i++) {
-            if (!hits(x + i * step)) return x + i * step;
-            if (!hits(x - i * step)) return x - i * step;
-        }
-        return x;
-    }
-
-    /** Find the first y position (near `y`) not overlapping any existing horizontal wire segment. */
-    _firstFreeY(y, xLo, xHi, hSegs, step = 6, maxTries = 8) {
-        const TOL = 2;
-        const hits = cy => hSegs.some(s =>
-            Math.abs(s.y - cy) < TOL && s.xLo < xHi - TOL && s.xHi > xLo + TOL);
-        if (!hits(y)) return y;
-        for (let i = 1; i <= maxTries; i++) {
-            if (!hits(y + i * step)) return y + i * step;
-            if (!hits(y - i * step)) return y - i * step;
-        }
-        return y;
     }
 
     /* ═══════════════════════════════════════

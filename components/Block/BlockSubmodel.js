@@ -20,10 +20,6 @@ export class BlockSubmodel extends Block {
         this.internalData = params.internalData ?? null;
     }
 
-    _computeHeight(numInputs, numOutputs) {
-        return Math.max(60, Math.max(numInputs, numOutputs, 1) * 24 + 16);
-    }
-
     createRendererClass() { return SubmodelBlockRenderer; }
 
     delete() {
