@@ -72,8 +72,8 @@ export class Stage {
     /* ──────────────────────────────────────
        Junction creation
     ────────────────────────────────────── */
-    createJunction(worldPos) {
-        const junction = new Junction(this, worldPos);
+    createJunction(worldPos, wireOrientation = null) {
+        const junction = new Junction(this, worldPos, wireOrientation);
         this.wireLayer.add(junction.renderer);
         junction.renderer.moveToTop();
         this.junctions.push(junction);

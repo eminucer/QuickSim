@@ -15,18 +15,19 @@ import { WireSegment } from './WireSegment.js';
  *   • Right-click junction  → context menu: Delete branch point.
  */
 export class Junction {
-    constructor(stageObj, worldPos) {
-        this.stage        = stageObj;
-        this.params       = { type: 'cp' };   // 'cp' lets it accept any port type
-        this.owner        = null;             // not owned by a block
-        this.isConnected  = false;            // always accepts more connections
-        this.wires        = [];               // every wire attached here
-        this.wire         = null;             // last wire (ConnectionPoint compat)
-        this._pos         = { x: worldPos.x, y: worldPos.y };
-        this._dragMoved   = false;
-        this._deleting    = false;            // re-entry guard for deletion cascades
-        this._branchWire  = null;             // the wire that caused this junction to be created
-        this.renderer     = this._buildRenderer();
+    constructor(stageObj, worldPos, wireOrientation = null) {
+        this.stage             = stageObj;
+        this.params            = { type: 'cp' };   // 'cp' lets it accept any port type
+        this.owner             = null;             // not owned by a block
+        this.isConnected       = false;            // always accepts more connections
+        this.wires             = [];               // every wire attached here
+        this.wire              = null;             // last wire (ConnectionPoint compat)
+        this._pos              = { x: worldPos.x, y: worldPos.y };
+        this._dragMoved        = false;
+        this._deleting         = false;            // re-entry guard for deletion cascades
+        this._branchWire       = null;             // the wire that caused this junction to be created
+        this._wireOrientation  = wireOrientation;  // 'h' or 'v' — orientation of the wire snapped onto
+        this.renderer          = this._buildRenderer();
     }
 
     /* ── Visual ─────────────────────────────── */

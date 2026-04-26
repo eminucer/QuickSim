@@ -353,6 +353,14 @@ export class WireSegmentRenderer extends Konva.Group {
             const split = this._splitPointsAt(snapPos);
             if (!split) return;
 
+            // Determine orientation of the wire at the snap point from split geometry.
+            // The last segment of firstPoints tells us if it's horizontal or vertical.
+            const fp   = split.firstPoints;
+            const fpN  = fp.length;
+            const wireDx = Math.abs(fp[fpN - 2] - fp[fpN - 4]);
+            const wireDy = Math.abs(fp[fpN - 1] - fp[fpN - 3]);
+            const wireOrientation = wireDx >= wireDy ? 'h' : 'v';
+
             // Cancel any in-progress draw (also cleans up any previous provisional junction)
             const tw = this.stage.tempWire;
             if (tw && tw.isDrawing()) tw.renderer.cancelDraw();
@@ -373,7 +381,7 @@ export class WireSegmentRenderer extends Konva.Group {
             this.fullDelete(); // destroy this renderer; 'this' is still valid in JS
 
             // Create the junction and the two sub-segment wires
-            const junction = this.stage.createJunction(snapPos);
+            const junction = this.stage.createJunction(snapPos, wireOrientation);
             this.stage.createWires({
                 ws1: { start: startCP, end: junction,   points: split.firstPoints,  attributes: attrs },
                 ws2: { start: junction, end: endCP,     points: split.secondPoints, attributes: attrs },
@@ -594,18 +602,48 @@ export class WireSegmentRenderer extends Konva.Group {
         // Treat it as an input port so output→cursor routing is natural.
         if (!cp) return 'left';
 
-        // Junction: pick the direction that faces the other wire end so
-        // the stub exits toward the middle of the connection, not backward.
+        // Junction: exit perpendicular to the wire it sits on so the branch
+        // visually "taps" the wire rather than running along it.
+        // Exception: if the other endpoint is nearly co-linear with the junction's
+        // wire direction (|ratio| < 0.5, i.e. within ~27° of the wire axis), it is
+        // a through-segment wire — let it exit along the wire as before.
+        // When no orientation is stored (legacy / dragged off original wire),
+        // fall back to the old direction-toward-other-end behaviour.
         if (type === 'cp') {
-            if (otherPos) {
-                const jPos = cp.getPositions();
-                const dx   = otherPos.x - jPos.x;
-                const dy   = otherPos.y - jPos.y;
-                return Math.abs(dx) >= Math.abs(dy)
-                    ? (dx >= 0 ? 'right' : 'left')
-                    : (dy >= 0 ? 'down'  : 'up');
+            const jPos    = cp.getPositions();
+            const wireOri = cp._wireOrientation;
+
+            if (!otherPos) {
+                // No target yet (initial stub on start()). Use perpendicular default.
+                if (wireOri === 'h') return 'down';
+                if (wireOri === 'v') return 'right';
+                return 'right';
             }
-            return 'right';
+
+            const dx  = otherPos.x - jPos.x;
+            const dy  = otherPos.y - jPos.y;
+            const adx = Math.abs(dx);
+            const ady = Math.abs(dy);
+
+            if (wireOri === 'h') {
+                // Junction on a horizontal wire.
+                // Through-wires go nearly horizontally (|dy| < |dx| * 0.5).
+                // Anything else (branch wires, diagonal) exits vertically.
+                if (adx > 0 && ady < adx * 0.5) return dx >= 0 ? 'right' : 'left';
+                return dy >= 0 ? 'down' : 'up';
+            }
+            if (wireOri === 'v') {
+                // Junction on a vertical wire.
+                // Through-wires go nearly vertically (|dx| < |dy| * 0.5).
+                // Everything else exits horizontally.
+                if (ady > 0 && adx < ady * 0.5) return dy >= 0 ? 'down' : 'up';
+                return dx >= 0 ? 'right' : 'left';
+            }
+
+            // No stored orientation — original behaviour.
+            return Math.abs(dx) >= Math.abs(dy)
+                ? (dx >= 0 ? 'right' : 'left')
+                : (dy >= 0 ? 'down'  : 'up');
         }
 
         // Regular port: use type + block rotation.
