@@ -136,6 +136,17 @@ export class Junction {
     }
 
     /**
+     * Remove a wire from this junction's list WITHOUT triggering any auto-cleanup.
+     * Used during split operations where a replacement wire will be assigned immediately
+     * after, so the junction should never be merged or destroyed mid-operation.
+     */
+    detachWire(wire) {
+        const idx = this.wires.indexOf(wire);
+        if (idx >= 0) this.wires.splice(idx, 1);
+        if (this.wire === wire) this.wire = this.wires[this.wires.length - 1] ?? null;
+    }
+
+    /**
      * Called when a block on the OTHER end of one of our wires is dragged.
      * Re-route all wires attached to this junction so the whole fan stays tidy.
      */
@@ -187,16 +198,18 @@ export class Junction {
         const points = wire1.renderer._getWirePoints(cp1Pos, cp2Pos, cp1, cp2);
         const attrs  = { stroke: '#334155', strokeWidth: 2, dash: [], lineCap: 'round', lineJoin: 'round' };
 
-        // Disconnect wire1 from cp1 (junction end is already handled by _deleting guard)
-        if (typeof cp1.removeWire === 'function') cp1.removeWire(wire1);
+        // Disconnect wire1 from cp1. If cp1 is itself a junction, use detachWire
+        // (not removeWire) so that removing this wire doesn't trigger cp1's own
+        // auto-merge — the replacement merged wire will be assigned to cp1 right after.
+        if (typeof cp1.detachWire === 'function') cp1.detachWire(wire1);
         else { cp1.wire = null; cp1.isConnected = false; }
         wire1.cps.start = null; wire1.cps.end = null;
         const si1 = this.stage.selectedItems.indexOf(wire1);
         if (si1 !== -1) this.stage.selectedItems.splice(si1, 1);
         wire1.renderer.fullDelete();
 
-        // Disconnect wire2 from cp2
-        if (typeof cp2.removeWire === 'function') cp2.removeWire(wire2);
+        // Disconnect wire2 from cp2 (same logic as cp1 above)
+        if (typeof cp2.detachWire === 'function') cp2.detachWire(wire2);
         else { cp2.wire = null; cp2.isConnected = false; }
         wire2.cps.start = null; wire2.cps.end = null;
         const si2 = this.stage.selectedItems.indexOf(wire2);

@@ -357,13 +357,16 @@ export class WireSegmentRenderer extends Konva.Group {
             const tw = this.stage.tempWire;
             if (tw && tw.isDrawing()) tw.renderer.cancelDraw();
 
-            // Detach the original wire from both its ports
+            // Detach the original wire from both its ports.
+            // For junction endpoints, use detachWire (not removeWire) to avoid
+            // triggering the junction's auto-merge — the two replacement sub-segment
+            // wires will be assigned to the junction immediately after.
             const attrs = { ...this.normalAttrs };
             this.owner.cps.start = null;
             this.owner.cps.end   = null;
-            if (typeof startCP.removeWire === 'function') startCP.removeWire(this.owner);
+            if (typeof startCP.detachWire === 'function') startCP.detachWire(this.owner);
             else { startCP.wire = null; startCP.isConnected = false; }
-            if (typeof endCP.removeWire === 'function') endCP.removeWire(this.owner);
+            if (typeof endCP.detachWire === 'function') endCP.detachWire(this.owner);
             else { endCP.wire = null; endCP.isConnected = false; }
             const si = this.stage.selectedItems.indexOf(this.owner);
             if (si !== -1) this.stage.selectedItems.splice(si, 1);
