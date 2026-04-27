@@ -228,6 +228,67 @@ export class Junction {
         this._destroySelf();
     }
 
+    /**
+     * If 2+ wires from this junction share an initial collinear segment, relocate
+     * the junction to the split (divergence) point and re-route all wires from
+     * there.  Repeats until stable so ladder-split cases converge.
+     * Called after a block drag updates a wire that terminates here.
+     */
+    _optimizeSplitPoint() {
+        const EPS = 0.5;
+        const isAtJ = (pt, j) => Math.abs(pt.x - j.x) < EPS && Math.abs(pt.y - j.y) < EPS;
+
+        for (let pass = 0; pass < 5; pass++) {
+            const jPos = this.getPositions();
+
+            // Normalise each wire's point list so it starts from J
+            const paths = this.wires.map(wire => {
+                const pts = wire.renderer?._pts;
+                if (!pts || pts.length < 2) return null;
+                if (isAtJ(pts[0], jPos))               return pts;
+                if (isAtJ(pts[pts.length - 1], jPos))  return [...pts].reverse();
+                return null;
+            }).filter(Boolean);
+
+            if (paths.length < 2) break;
+
+            // Group by initial exit direction, recording first-segment extent
+            const groups = { right: [], left: [], down: [], up: [] };
+            for (const path of paths) {
+                if (path.length < 2) continue;
+                const p0 = path[0], p1 = path[1];
+                const dx = p1.x - p0.x, dy = p1.y - p0.y;
+                const adx = Math.abs(dx), ady = Math.abs(dy);
+                if (adx < EPS && ady < EPS) continue;
+                if (adx >= ady) groups[dx > 0 ? 'right' : 'left'].push(adx);
+                else            groups[dy > 0 ? 'down'  : 'up'  ].push(ady);
+            }
+
+            // Find a direction where 2+ wires overlap
+            const entry = Object.entries(groups).find(([, exts]) => exts.length >= 2);
+            if (!entry) break; // no overlap — done
+
+            const [dir, exts] = entry;
+            const minExt = Math.min(...exts);
+            if (minExt < 1) break;
+
+            // Move junction to the split point
+            const newX = dir === 'right' ? jPos.x + minExt
+                       : dir === 'left'  ? jPos.x - minExt : jPos.x;
+            const newY = dir === 'down'  ? jPos.y + minExt
+                       : dir === 'up'    ? jPos.y - minExt : jPos.y;
+
+            this._pos.x           = newX;
+            this._pos.y           = newY;
+            this._wireOrientation = null; // free branch point — no axis constraint
+            this.renderer.x(newX);
+            this.renderer.y(newY);
+
+            // Re-route all wires from the new position so next pass sees fresh paths
+            this.wires.forEach(w => w?.updateOnDrag(this));
+        }
+    }
+
     /** Remove the junction's Konva node and stage reference without touching wires. */
     _destroySelf() {
         this.renderer?.destroy();

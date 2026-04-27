@@ -55,7 +55,8 @@ export class DefaultBlockRenderer extends Konva.Group {
             };
 
             // Update wires: translate internal wires rigidly, re-route boundary wires
-            const processedWires = new Set();
+            const processedWires    = new Set();
+            const junctionsToOptimize = new Set();
 
             const processWire = (wire, fromCP) => {
                 if (processedWires.has(wire)) return;
@@ -74,6 +75,9 @@ export class DefaultBlockRenderer extends Konva.Group {
                 } else {
                     // One end crosses the boundary → re-anchor from the selected end
                     wire.updateOnDrag(fromCP);
+                    // If the far end is a junction, its wires may now overlap —
+                    // schedule a split-point optimisation after all wires are updated
+                    if (otherCP?.params?.type === 'cp') junctionsToOptimize.add(otherCP);
                 }
             };
 
@@ -88,6 +92,9 @@ export class DefaultBlockRenderer extends Konva.Group {
             selectedJunctions.forEach(junction => {
                 junction.wires.forEach(wire => processWire(wire, junction));
             });
+
+            // Relocate any junction whose wires now share an initial segment
+            junctionsToOptimize.forEach(j => j._optimizeSplitPoint?.());
 
             // Keep selection bounds rect in sync
             if (this.stage._updateSelectionBounds) this.stage._updateSelectionBounds();
