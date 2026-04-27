@@ -581,8 +581,6 @@ function populateSubmodelStage(subStage, data) {
 /* ─────────────────────────────────────────
    Make Submodel
 ───────────────────────────────────────── */
-let submodelCounter = 0;
-
 function makeSubmodel() {
     // Operate on whichever stage is currently visible
     const activeStage = activeTabId === 'main'
@@ -617,6 +615,16 @@ function makeSubmodel() {
             }
         });
     });
+
+    // Sort boundary connections top-to-bottom so port[0] = topmost connection
+    const portAbsY = port => {
+        const block = port.owner;
+        const n    = port.params.type === 'input' ? block.numOfPorts[0] : block.numOfPorts[1];
+        const slot = block.size.height / Math.max(1, n);
+        return block.renderer.y() + slot * port.params.idx + slot / 2;
+    };
+    inputConns.sort( (a, b) => portAbsY(a.internalPort) - portAbsY(b.internalPort));
+    outputConns.sort((a, b) => portAbsY(a.internalPort) - portAbsY(b.internalPort));
 
     // Compute bounding-box center for submodel placement
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -698,7 +706,7 @@ function makeSubmodel() {
         numOutputs:   numOut,
         pos:          subPos,
         internalData,
-        label:        `Sub ${++submodelCounter}`,
+        label:        'Sub',
     });
     activeStage.add(submodel);
 
