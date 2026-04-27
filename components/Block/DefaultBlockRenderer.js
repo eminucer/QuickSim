@@ -55,8 +55,7 @@ export class DefaultBlockRenderer extends Konva.Group {
             };
 
             // Update wires: translate internal wires rigidly, re-route boundary wires
-            const processedWires     = new Set();
-            const processedJunctions = new Set();
+            const processedWires = new Set();
 
             const processWire = (wire, fromCP) => {
                 if (processedWires.has(wire)) return;
@@ -75,15 +74,6 @@ export class DefaultBlockRenderer extends Konva.Group {
                 } else {
                     // One end crosses the boundary → re-anchor from the selected end
                     wire.updateOnDrag(fromCP);
-
-                    // If the non-selected end is a junction, re-route its other wires
-                    // so the full fan stays connected
-                    if (otherCP?.params?.type === 'cp' && !processedJunctions.has(otherCP)) {
-                        processedJunctions.add(otherCP);
-                        otherCP.wires?.forEach(w => {
-                            if (!processedWires.has(w)) w?.updateOnDrag(otherCP);
-                        });
-                    }
                 }
             };
 
