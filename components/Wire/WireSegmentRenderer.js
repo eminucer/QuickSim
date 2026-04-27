@@ -409,6 +409,13 @@ export class WireSegmentRenderer extends Konva.Group {
         if (segIdx === 0 || segIdx === n - 2) {
             segIdx = this._insertKneeForStub(segIdx);
         }
+        // For a 1-segment wire (n=2) the start-stub insertion above returns index 2,
+        // but the new segment 2 still ends at the far port endpoint (pts[3]).
+        // A second pass protects that endpoint with an end-stub knee as well.
+        const n2 = this._pts.length;
+        if (segIdx === 0 || segIdx === n2 - 2) {
+            segIdx = this._insertKneeForStub(segIdx);
+        }
 
         this._dragging     = true;
         this._dragMoved    = false;
