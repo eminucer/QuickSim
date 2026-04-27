@@ -327,19 +327,21 @@ export class WireSegmentRenderer extends Konva.Group {
                 : { x: endPos.x,  y: up[n-2].y }; // V last seg: keep y, slide x
         }
 
-        // ── Feasibility: first segment must keep the same travel direction ──
-        if (firstIsH) {
-            if ((pts[1].x > pts[0].x) !== (up[1].x > up[0].x)) return false;
-        } else {
-            if ((pts[1].y > pts[0].y) !== (up[1].y > up[0].y)) return false;
-        }
+        // ── Feasibility: segments may shrink to zero but must not strictly reverse.
+        //
+        // A "collapsed" terminal segment (length → 0) occurs when a junction moves
+        // exactly to the adjacent bend point.  It is geometrically valid — the wire
+        // simply loses that stub — and is handled gracefully at the end.  Only a
+        // genuine sign flip (positive → negative or vice versa) is infeasible.
+        const firstDelta    = firstIsH ? (up[1].x - up[0].x)     : (up[1].y - up[0].y);
+        const firstDeltaNew = firstIsH ? (pts[1].x - pts[0].x)    : (pts[1].y - pts[0].y);
+        const fSign = Math.sign(firstDelta), fSignNew = Math.sign(firstDeltaNew);
+        if (fSign !== 0 && fSignNew !== 0 && fSign !== fSignNew) return false;
 
-        // ── Feasibility: last segment must keep the same travel direction ──
-        if (lastIsH) {
-            if ((pts[n-1].x > pts[n-2].x) !== (up[n-1].x > up[n-2].x)) return false;
-        } else {
-            if ((pts[n-1].y > pts[n-2].y) !== (up[n-1].y > up[n-2].y)) return false;
-        }
+        const lastDelta    = lastIsH ? (up[n-1].x - up[n-2].x)   : (up[n-1].y - up[n-2].y);
+        const lastDeltaNew = lastIsH ? (pts[n-1].x - pts[n-2].x)  : (pts[n-1].y - pts[n-2].y);
+        const lSign = Math.sign(lastDelta), lSignNew = Math.sign(lastDeltaNew);
+        if (lSign !== 0 && lSignNew !== 0 && lSign !== lSignNew) return false;
 
         // ── Feasibility: segments adjacent to the locked region must keep their
         //    H/V orientation after the terminal points slide. ──────────────────
@@ -351,6 +353,18 @@ export class WireSegmentRenderer extends Konva.Group {
             const wasHLast = Math.abs(up[n-3].y - up[n-2].y) < 1;
             const nowHLast = Math.abs(pts[n-3].y - pts[n-2].y) < 1;
             if (wasHLast !== nowHLast) return false;
+        }
+
+        // ── Collapsed terminal segment ───────────────────────────────────────
+        // If a terminal segment shrank to zero (junction moved to the bend point),
+        // update _pts for rendering (cleaned) but leave _userPts unchanged so the
+        // original shape is restored if the junction/block later moves back.
+        const firstCollapsed = Math.abs(firstDeltaNew) < 0.5;
+        const lastCollapsed  = Math.abs(lastDeltaNew)  < 0.5;
+        if (firstCollapsed || lastCollapsed) {
+            this._pts = this._toPointObjects(this._cleanPath(this._toFlatPoints(pts)));
+            // _userPts intentionally NOT updated — preserves shape for restoration.
+            return true;
         }
 
         this._pts     = pts;
