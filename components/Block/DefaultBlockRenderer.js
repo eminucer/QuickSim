@@ -65,13 +65,10 @@ export class DefaultBlockRenderer extends Konva.Group {
                 const otherCP = wire.cps.start === fromCP ? wire.cps.end : wire.cps.start;
 
                 if (inSelection(otherCP)) {
-                    // Both ends inside the selection → shift all points rigidly
-                    wire.renderer._pts.forEach(p => { p.x += dx; p.y += dy; });
-                    if (wire.renderer.wire) {
-                        wire.renderer.wire.points(
-                            wire.renderer._toFlatPoints(wire.renderer._pts)
-                        );
-                    }
+                    // Both ends inside the selection → shift all points rigidly.
+                    // translateAll also keeps _userPts in sync so incremental
+                    // updates remain valid after the group drag.
+                    wire.renderer.translateAll(dx, dy);
                 } else {
                     // One end crosses the boundary → re-anchor from the selected end
                     wire.updateOnDrag(fromCP);

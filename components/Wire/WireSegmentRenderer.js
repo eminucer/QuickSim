@@ -25,6 +25,11 @@ export class WireSegmentRenderer extends Konva.Group {
         this._dragStartPos = null;
         this._origPts      = null;
 
+        // User-locked geometry: set after a manual segment drag so that block
+        // moves stretch only the terminal stubs instead of fully re-routing.
+        // Cleared when the wire is freshly connected or the constraint fails.
+        this._userPts = null;
+
         this.tempWireAttrs = {
             stroke:      '#64748b',
             strokeWidth: 1.5,
@@ -143,6 +148,7 @@ export class WireSegmentRenderer extends Konva.Group {
 
     /** Finalize the wire visual between two ports. Caller assigns cps. */
     end(connectionPoint) {
+        this._userPts = null; // fresh connection — no user geometry override
         if (this.wire) { this.wire.destroy(); this.wire = null; }
 
         const startPos = WireSegmentRenderer.startPointPos;
@@ -206,6 +212,7 @@ export class WireSegmentRenderer extends Konva.Group {
 
     /** Connect two CPs programmatically and draw the routed wire path. */
     connect2WithVisual(startCP, endCP) {
+        this._userPts = null;
         const startPos = startCP.getPositions();
         const endPos   = endCP.getPositions();
         const points   = this._getWirePoints(startPos, endPos, startCP, endCP);
@@ -225,9 +232,14 @@ export class WireSegmentRenderer extends Konva.Group {
     ═══════════════════════════════════════ */
 
     /**
-     * Called when a connected block moves.
-     * Always recomputes the full route from scratch so stale knees are
-     * eliminated and the wire is re-optimised for the new positions.
+     * Called when a connected block or junction moves.
+     *
+     * If the user has manually shaped this wire (_userPts is set), try an
+     * incremental update first: stretch only the terminal stub segments so the
+     * middle sections the user dragged stay where they were placed (Simulink
+     * behaviour).  If the new port positions make that impossible (e.g. a block
+     * moved past a locked segment), discard the override and fall back to a
+     * full re-route from scratch.
      */
     updateOnDrag(_cp) {
         if (!this.owner.cps.start || !this.owner.cps.end) return;
@@ -236,8 +248,15 @@ export class WireSegmentRenderer extends Konva.Group {
         const endCP    = this.owner.cps.end;
         const startPos = startCP.getPositions();
         const endPos   = endCP.getPositions();
-        const points   = this._getWirePoints(startPos, endPos, startCP, endCP);
-        this._pts      = this._toPointObjects(points);
+
+        let points;
+        if (this._userPts && this._tryIncrementalUpdate(startPos, endPos)) {
+            points = this._toFlatPoints(this._pts);
+        } else {
+            this._userPts = null;
+            points = this._getWirePoints(startPos, endPos, startCP, endCP);
+            this._pts = this._toPointObjects(points);
+        }
 
         if (this.wire) {
             this.wire.points(points);
@@ -245,8 +264,103 @@ export class WireSegmentRenderer extends Konva.Group {
         }
     }
 
+    /**
+     * Try to adapt the user-locked geometry to new port positions by stretching
+     * only the terminal stub segments, leaving the manually-dragged middle
+     * segments untouched (Simulink "preserve manual layout on block move").
+     *
+     * The rule for each terminal:
+     *   - Horizontal first/last segment → keep the locked point's x, slide its y
+     *     to match the new port y (the segment stretches/shrinks horizontally).
+     *   - Vertical first/last segment   → keep the locked point's y, slide its x.
+     *
+     * Returns true and updates _pts / _userPts on success.
+     * Returns false if the geometry becomes infeasible (direction reversal or
+     * orientation flip in the segment adjacent to the locked region).
+     */
+    _tryIncrementalUpdate(startPos, endPos) {
+        const up = this._userPts;
+        const n  = up.length;
+        if (n < 2) return false;
+
+        const pts = up.map(p => ({ x: p.x, y: p.y }));
+        pts[0]   = { x: startPos.x, y: startPos.y };
+        pts[n-1] = { x: endPos.x,   y: endPos.y   };
+
+        if (n === 2) {
+            // Single-segment wire — always feasible, just update endpoints.
+            this._pts     = pts;
+            this._userPts = pts.map(p => ({ x: p.x, y: p.y }));
+            return true;
+        }
+
+        const firstIsH = Math.abs(up[0].y - up[1].y) < 1;
+        const lastIsH  = Math.abs(up[n-1].y - up[n-2].y) < 1;
+
+        // Stretch the second point along the axis perpendicular to the first segment.
+        // For n=3 the "second" and "second-to-last" are the same index (1) — the
+        // single elbow point.  In that case it must satisfy BOTH terminal constraints
+        // simultaneously, which is only possible when they agree on the same axis
+        // (H-V-H or V-H-V through that point).  We handle each sub-case explicitly.
+        if (n === 3) {
+            if (firstIsH && !lastIsH) {
+                // H then V: elbow keeps its x (set by last/V), y follows start
+                pts[1] = { x: endPos.x,   y: startPos.y };
+            } else if (!firstIsH && lastIsH) {
+                // V then H: elbow keeps its y (set by last/H), x follows start
+                pts[1] = { x: startPos.x, y: endPos.y   };
+            } else if (firstIsH && lastIsH) {
+                // H-H (same-direction): elbow keeps stored x, slides to start y.
+                pts[1] = { x: up[1].x, y: startPos.y };
+            } else {
+                // V-V: elbow keeps stored y, slides to start x.
+                pts[1] = { x: startPos.x, y: up[1].y };
+            }
+        } else {
+            pts[1] = firstIsH
+                ? { x: up[1].x, y: startPos.y }   // H first seg: keep x, slide y
+                : { x: startPos.x, y: up[1].y };  // V first seg: keep y, slide x
+
+            // Stretch the second-to-last point similarly for the last segment.
+            pts[n-2] = lastIsH
+                ? { x: up[n-2].x, y: endPos.y }   // H last seg: keep x, slide y
+                : { x: endPos.x,  y: up[n-2].y }; // V last seg: keep y, slide x
+        }
+
+        // ── Feasibility: first segment must keep the same travel direction ──
+        if (firstIsH) {
+            if ((pts[1].x > pts[0].x) !== (up[1].x > up[0].x)) return false;
+        } else {
+            if ((pts[1].y > pts[0].y) !== (up[1].y > up[0].y)) return false;
+        }
+
+        // ── Feasibility: last segment must keep the same travel direction ──
+        if (lastIsH) {
+            if ((pts[n-1].x > pts[n-2].x) !== (up[n-1].x > up[n-2].x)) return false;
+        } else {
+            if ((pts[n-1].y > pts[n-2].y) !== (up[n-1].y > up[n-2].y)) return false;
+        }
+
+        // ── Feasibility: segments adjacent to the locked region must keep their
+        //    H/V orientation after the terminal points slide. ──────────────────
+        if (n >= 4) {
+            const wasH12 = Math.abs(up[1].y - up[2].y) < 1;
+            const nowH12 = Math.abs(pts[1].y - pts[2].y) < 1;
+            if (wasH12 !== nowH12) return false;
+
+            const wasHLast = Math.abs(up[n-3].y - up[n-2].y) < 1;
+            const nowHLast = Math.abs(pts[n-3].y - pts[n-2].y) < 1;
+            if (wasHLast !== nowHLast) return false;
+        }
+
+        this._pts     = pts;
+        this._userPts = pts.map(p => ({ x: p.x, y: p.y }));
+        return true;
+    }
+
     /** Full repoint — used when a split wire is created. */
     updatePoints(params) {
+        this._userPts = null;
         if (this.wire) this.wire.destroy();
         const points = params.points;
         this._pts = this._toPointObjects(points);
@@ -255,6 +369,19 @@ export class WireSegmentRenderer extends Konva.Group {
         this._initWireEvents();
         this.add(this.wire);
         if (this.stage) this.stage.draw(this.owner);
+    }
+
+    /**
+     * Translate all wire points rigidly by (dx, dy).
+     * Used when both endpoints move together (multi-block drag).
+     * Also updates _userPts so the locked geometry stays consistent.
+     */
+    translateAll(dx, dy) {
+        this._pts.forEach(p => { p.x += dx; p.y += dy; });
+        if (this._userPts) {
+            this._userPts.forEach(p => { p.x += dx; p.y += dy; });
+        }
+        if (this.wire) this.wire.points(this._toFlatPoints(this._pts));
     }
 
     highlight() {
@@ -487,6 +614,13 @@ export class WireSegmentRenderer extends Konva.Group {
         if (!this._dragging) return;
         this._dragging = false;
         document.body.style.cursor = 'default';
+
+        if (this._dragMoved) {
+            // Commit the manually-shaped geometry so future block moves will
+            // stretch only the terminal stubs, preserving this layout.
+            this._userPts = this._pts.map(p => ({ x: p.x, y: p.y }));
+        }
+
         if (this.wire && !this.owner.isSelected) {
             this.wire.stroke(this.normalAttrs.stroke);
             this.wire.strokeWidth(this.normalAttrs.strokeWidth);
