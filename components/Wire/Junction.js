@@ -290,8 +290,15 @@ export class Junction {
             this.renderer.x(newX);
             this.renderer.y(newY);
 
-            // Re-route all wires from the new position so next pass sees fresh paths
-            this.wires.forEach(w => w?.updateOnDrag(this));
+            // Re-route all wires from the new position so next pass sees fresh paths.
+            // Seed _userPts for wires that were never manually dragged so that
+            // only the junction-end stub stretches instead of fully re-routing.
+            this.wires.forEach(w => {
+                if (w?.renderer && w.renderer._pts && !w.renderer._userPts) {
+                    w.renderer._userPts = w.renderer._pts.map(p => ({ x: p.x, y: p.y }));
+                }
+                w?.updateOnDrag(this);
+            });
         }
     }
 
