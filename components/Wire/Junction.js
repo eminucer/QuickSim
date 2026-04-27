@@ -71,7 +71,13 @@ export class Junction {
         // Reset after drag so the next click isn't mistakenly suppressed.
         // Konva already suppresses `click` during a drag, so resetting here
         // is safe — the click handler only fires for genuine clicks.
-        dot.on('dragend', () => { this._dragMoved = false; });
+        dot.on('dragend', () => {
+            this._dragMoved = false;
+            // After the drag settles, relocate to the split point if any wires overlap.
+            // Done here (not in dragmove) to avoid fighting Konva's internal drag-offset.
+            this._optimizeSplitPoint();
+            this.stage.wireLayer?.batchDraw();
+        });
 
         // click fires only when the pointer didn't drag (Konva suppresses it
         // after a real drag), so it's safe to use for select / wire actions.

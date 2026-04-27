@@ -572,16 +572,30 @@ export class WireSegmentRenderer extends Konva.Group {
         const allRects  = (this.stage?.blocks ?? [])
             .map(b => this._blockRect(b)).filter(Boolean);
 
+        const startIsJunction = startCP?.params?.type === 'cp';
+        const endIsJunction   = endCP?.params?.type   === 'cp';
         const startH = startDir === 'right' || startDir === 'left';
         const endH   = endDir   === 'right' || endDir   === 'left';
 
         let inner;
         if (startH && endH) {
-            // Both horizontal stubs
-            inner = this._routeHH(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
+            if (startIsJunction || endIsJunction) {
+                // Single-knee L: corner chosen so the wire arrives at the block port
+                // parallel to the port's axis.
+                // junction→H port: corner at (jx, port_y)  →  [ax, by]
+                // H port→junction: corner at (jx, port_y)  →  [bx, ay]
+                inner = startIsJunction ? [ax, by] : [bx, ay];
+            } else {
+                inner = this._routeHH(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
+            }
         } else if (!startH && !endH) {
-            // Both vertical stubs
-            inner = this._routeVV(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
+            if (startIsJunction || endIsJunction) {
+                // junction→V port: corner at (port_x, jy)  →  [bx, ay]
+                // V port→junction: corner at (port_x, jy)  →  [ax, by]
+                inner = startIsJunction ? [bx, ay] : [ax, by];
+            } else {
+                inner = this._routeVV(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
+            }
         } else if (startH) {
             // Horizontal start, vertical end → L-shape: go to bx first, then down/up to by
             inner = [bx, ay];
