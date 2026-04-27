@@ -56,10 +56,12 @@ export class WireSegmentRenderer extends Konva.Group {
 
         // Draw an initial stub in the port's exit direction so there is
         // visible feedback the moment the port is clicked, before the
-        // pointer has moved.  A zero-length line would be invisible.
+        // pointer has moved.  Junctions use no stub (the dot itself is
+        // feedback enough, and they turn immediately).
         const pos       = WireSegmentRenderer.startPointPos;
         const dir       = this._portExitDir(connectionPoint);
-        const [ax, ay]  = this._stubEnd(pos.x, pos.y, dir, 24);
+        const stubLen   = connectionPoint?.params?.type === 'cp' ? 0 : 24;
+        const [ax, ay]  = this._stubEnd(pos.x, pos.y, dir, stubLen);
 
         this.wire = new Konva.Line({
             points:   [pos.x, pos.y, ax, ay],
@@ -123,9 +125,10 @@ export class WireSegmentRenderer extends Konva.Group {
         const sx = startPos.x, sy = startPos.y;
         const ex = endPos.x,   ey = endPos.y;
         const STUB = 24;
+        const stub = startCP?.params?.type === 'cp' ? 0 : STUB;
 
         const startDir = this._portExitDir(startCP, endPos);
-        const [ax, ay] = this._stubEnd(sx, sy, startDir, STUB);
+        const [ax, ay] = this._stubEnd(sx, sy, startDir, stub);
 
         const startH = startDir === 'right' || startDir === 'left';
         // One elbow: if exiting horizontally go to cursor x then y, else cursor y then x
@@ -551,6 +554,9 @@ export class WireSegmentRenderer extends Konva.Group {
         const sx = startPos.x, sy = startPos.y;
         const ex = endPos.x,   ey = endPos.y;
         const STUB = 24, GAP = 10;
+        // Junctions turn immediately; only block ports need a clearance stub.
+        const startStub = startCP?.params?.type === 'cp' ? 0 : STUB;
+        const endStub   = endCP?.params?.type   === 'cp' ? 0 : STUB;
 
         // True exit direction of each port, accounting for block rotation.
         // Output→right, Input→left at 0°; rotated N×90° CW from there.
@@ -559,8 +565,8 @@ export class WireSegmentRenderer extends Konva.Group {
         const endDir   = this._portExitDir(endCP,   startPos);
 
         // Stub end-points: where the wire first clears the block
-        const [ax, ay] = this._stubEnd(sx, sy, startDir, STUB);
-        const [bx, by] = this._stubEnd(ex, ey, endDir,   STUB);
+        const [ax, ay] = this._stubEnd(sx, sy, startDir, startStub);
+        const [bx, by] = this._stubEnd(ex, ey, endDir,   endStub);
 
         const obstacles = this._getObstacles(startCP, endCP);
         const allRects  = (this.stage?.blocks ?? [])
