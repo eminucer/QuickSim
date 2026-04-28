@@ -55,9 +55,9 @@ export class DefaultBlockRenderer extends Konva.Group {
             };
 
             // Update wires: translate internal wires rigidly, re-route boundary wires.
-            // Through-wires of a junction are handled atomically: updateOnDrag
-            // delegates to the junction's reflowParentPath, which re-routes the
-            // entire conceptual parent path and re-snaps the junction onto it.
+            // Each wire is independent — a junction is just a fixed CP at its
+            // current position, so a through-wire whose far block moves only
+            // re-routes itself and leaves its sibling and any branches alone.
             const processedWires = new Set();
 
             const processWire = (wire, fromCP) => {
@@ -73,8 +73,6 @@ export class DefaultBlockRenderer extends Konva.Group {
                     wire.renderer.translateAll(dx, dy);
                 } else {
                     // One end crosses the boundary → re-anchor from the selected end.
-                    // If the other end is a junction, updateOnDrag delegates to
-                    // junction.reflowParentPath (handled inside the renderer).
                     wire.updateOnDrag(fromCP);
                 }
             };

@@ -19,14 +19,18 @@ import { WireSegment } from './WireSegment.js';
  * Block movement
  * ──────────────
  * When a block on the far end of a through wire moves, we re-route the entire
- * conceptual parent path as ONE wire (start far port → end far port), then snap
- * the junction to its closest point on that new path and split into the two
- * sub-wires.  Branch wires are then re-routed from the junction's new position.
+ * conceptual parent path as ONE wire (start far port → end far port), then
+ * place the junction at the SPLIT POINT — the natural tap point of the
+ * branches on that new path (centroid of branch-source projections).  This
+ * is the Simulink anchor-point semantics: the junction stays put unless the
+ * block geometry actually shifts where the branches would naturally meet
+ * the parent.  Branch and through wires are then re-routed from there.
  *
  * User drag
  * ─────────
- * Dragging the junction projects the cursor onto the parent path's segments
- * and slides the junction along it.  It cannot drift off the parent.
+ * Dragging is purely a transient visualization — on release the junction
+ * snaps back to its split point regardless of where the cursor was.  A
+ * junction has no independent position; it is anchored to the geometry.
  */
 export class Junction {
     constructor(stageObj, worldPos, wireOrientation = null) {
@@ -224,57 +228,20 @@ export class Junction {
 
     /**
      * Re-route the conceptual parent wire (farCP1 → farCP2) as a single path,
-     * snap the junction onto it, re-split into the two through-wires, and
-     * refresh all branch wires.  Returns true on success.
+     * place the junction at the SPLIT POINT (where branches naturally tap the
+     * new path), re-split into the two through-wires, and refresh branches.
+     * Returns true on success.
      *
-     * Called when a far-end port of a through-wire moves.
+     * Called when a far-end port of a through-wire moves.  The junction's
+     * world position is treated as derived geometry — it tracks the natural
+     * tap point, not the user-drag history — so a block move that does not
+     * change where the branches meet the parent leaves the junction in place.
      */
     reflowParentPath() {
         if (this._reflowing || this._deleting) return false;
-        if (this._throughWires.length !== 2)   return false;
-
-        const [w1, w2] = this._throughWires;
-        const farCP1 = this._farEndOf(w1);
-        const farCP2 = this._farEndOf(w2);
-        if (!farCP1 || !farCP2) return false;
-
         this._reflowing = true;
         try {
-            const sample = w1.renderer ?? w2.renderer;
-            if (!sample) return false;
-
-            const startPos = farCP1.getPositions();
-            const endPos   = farCP2.getPositions();
-            const flat     = sample._getWirePoints(startPos, endPos, farCP1, farCP2);
-            const pts      = this._toPointObjects(flat);
-            if (pts.length < 2) return false;
-
-            // Project the junction's current position onto the new parent path.
-            const proj = this._projectOntoPath(pts, this._pos);
-            if (!proj) return false;
-
-            const oldX = this._pos.x, oldY = this._pos.y;
-            this._pos.x = proj.point.x;
-            this._pos.y = proj.point.y;
-            this.renderer?.x(proj.point.x);
-            this.renderer?.y(proj.point.y);
-
-            // Orientation = orientation of the segment containing the junction.
-            const a = pts[proj.segIdx], b = pts[proj.segIdx + 1];
-            const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
-            this._wireOrientation = dx >= dy ? 'h' : 'v';
-
-            // Split path at the junction and assign each half to its through-wire,
-            // ordered so each wire's existing start/end CPs still match.
-            this._applyPathSplit(pts, proj, w1, w2, farCP1, farCP2);
-
-            // Only re-route branches if the junction's world position actually
-            // moved.  If projection landed it back at the same coordinate, the
-            // branch source hasn't moved and its wire must stay untouched.
-            const moved = Math.abs(this._pos.x - oldX) > 0.5
-                       || Math.abs(this._pos.y - oldY) > 0.5;
-            if (moved) this._updateBranchWires();
-            return true;
+            return this._snapToSplitPoint(/* updateBranches */ true);
         } finally {
             this._reflowing = false;
         }
@@ -282,30 +249,46 @@ export class Junction {
 
     /**
      * Lighter version of reflowParentPath used when the user drags the junction.
-     * The parent path's far ports haven't moved, so we just re-split the existing
-     * path at the (already-snapped) junction position.
+     * Same logic — junction snaps to the geometric split point — so a drag
+     * that doesn't move the branch source(s) returns the junction to where it
+     * was before the drag started.
      */
     _resplitParentAtJunction() {
-        if (this._throughWires.length !== 2) return;
+        this._snapToSplitPoint(/* updateBranches */ false);
+    }
+
+    /**
+     * Core routine: re-route the parent path far→far as a single wire, project
+     * the branch sources onto it to find the split point, place the junction
+     * there, and split the path into the two through-wires.  When
+     * `updateBranches` is true, also re-route branch wires from the new
+     * junction position (only when the junction actually moved).
+     */
+    _snapToSplitPoint(updateBranches) {
+        if (this._throughWires.length !== 2) return false;
 
         const [w1, w2] = this._throughWires;
         const farCP1 = this._farEndOf(w1);
         const farCP2 = this._farEndOf(w2);
-        if (!farCP1 || !farCP2) return;
+        if (!farCP1 || !farCP2) return false;
 
         const sample = w1.renderer ?? w2.renderer;
-        if (!sample) return;
+        if (!sample) return false;
 
         const startPos = farCP1.getPositions();
         const endPos   = farCP2.getPositions();
         const flat     = sample._getWirePoints(startPos, endPos, farCP1, farCP2);
         const pts      = this._toPointObjects(flat);
-        if (pts.length < 2) return;
+        if (pts.length < 2) return false;
 
-        // Snap junction onto the freshly routed parent path so the drag never
-        // produces an off-path position.
-        const proj = this._projectOntoPath(pts, this._pos);
-        if (!proj) return;
+        // The junction sits at the natural tap of the branches on the parent
+        // path.  With no branches we have nothing to anchor to, so fall back
+        // to the junction's current position (it'll merge away shortly).
+        const target = this._branchTargetPos() ?? this._pos;
+        const proj   = this._projectOntoPath(pts, target);
+        if (!proj) return false;
+
+        const oldX = this._pos.x, oldY = this._pos.y;
         this._pos.x = proj.point.x;
         this._pos.y = proj.point.y;
         this.renderer?.x(proj.point.x);
@@ -316,6 +299,30 @@ export class Junction {
         this._wireOrientation = dx >= dy ? 'h' : 'v';
 
         this._applyPathSplit(pts, proj, w1, w2, farCP1, farCP2);
+
+        if (updateBranches) {
+            const moved = Math.abs(this._pos.x - oldX) > 0.5
+                       || Math.abs(this._pos.y - oldY) > 0.5;
+            if (moved) this._updateBranchWires();
+        }
+        return true;
+    }
+
+    /**
+     * Aggregate target for split-point projection: the centroid of every
+     * branch wire's far-end position.  Returns null when there are no
+     * branches to anchor to.
+     */
+    _branchTargetPos() {
+        let sx = 0, sy = 0, n = 0;
+        for (const wire of this.wires) {
+            if (this._throughWires.includes(wire)) continue;
+            const far = this._farEndOf(wire);
+            if (!far) continue;
+            const p = far.getPositions();
+            sx += p.x; sy += p.y; n++;
+        }
+        return n > 0 ? { x: sx / n, y: sy / n } : null;
     }
 
     /** Slide branch wires from the junction's new position. */

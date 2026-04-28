@@ -247,20 +247,6 @@ export class WireSegmentRenderer extends Konva.Group {
         const startCP  = this.owner.cps.start;
         const endCP    = this.owner.cps.end;
 
-        // Through-wire of a junction → delegate to the junction so the entire
-        // parent path is re-routed as one wire and the junction snaps onto it.
-        // Either end could be the junction (and only one of them can be — a
-        // sub-wire never has a junction at both ends).
-        const callerIsStart = (_cp === startCP);
-        const otherCP = callerIsStart ? endCP : startCP;
-        if (otherCP?.params?.type === 'cp' &&
-            typeof otherCP.isThroughWire === 'function' &&
-            otherCP.isThroughWire(this.owner) &&
-            !otherCP._reflowing) {
-            otherCP.reflowParentPath();
-            return;
-        }
-
         const startPos = startCP.getPositions();
         const endPos   = endCP.getPositions();
 
