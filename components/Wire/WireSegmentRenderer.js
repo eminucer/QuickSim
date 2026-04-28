@@ -246,6 +246,21 @@ export class WireSegmentRenderer extends Konva.Group {
 
         const startCP  = this.owner.cps.start;
         const endCP    = this.owner.cps.end;
+
+        // Through-wire of a junction → delegate to the junction so the entire
+        // parent path is re-routed as one wire and the junction snaps onto it.
+        // Either end could be the junction (and only one of them can be — a
+        // sub-wire never has a junction at both ends).
+        const callerIsStart = (_cp === startCP);
+        const otherCP = callerIsStart ? endCP : startCP;
+        if (otherCP?.params?.type === 'cp' &&
+            typeof otherCP.isThroughWire === 'function' &&
+            otherCP.isThroughWire(this.owner) &&
+            !otherCP._reflowing) {
+            otherCP.reflowParentPath();
+            return;
+        }
+
         const startPos = startCP.getPositions();
         const endPos   = endCP.getPositions();
 
@@ -509,6 +524,16 @@ export class WireSegmentRenderer extends Konva.Group {
             const tw = this.stage.tempWire;
             if (tw && tw.isDrawing()) tw.renderer.cancelDraw();
 
+            // If the wire being split was itself a through-wire of an existing
+            // junction at one of its endpoints, the corresponding new sub-wire
+            // (the half that touches that junction) inherits the through role.
+            const startInheritor = (startCP?.params?.type === 'cp'
+                && typeof startCP.isThroughWire === 'function'
+                && startCP.isThroughWire(this.owner)) ? startCP : null;
+            const endInheritor   = (endCP?.params?.type   === 'cp'
+                && typeof endCP.isThroughWire   === 'function'
+                && endCP.isThroughWire(this.owner)) ? endCP   : null;
+
             // Detach the original wire from both its ports.
             // For junction endpoints, use detachWire (not removeWire) to avoid
             // triggering the junction's auto-merge — the two replacement sub-segment
@@ -526,10 +551,15 @@ export class WireSegmentRenderer extends Konva.Group {
 
             // Create the junction and the two sub-segment wires
             const junction = this.stage.createJunction(snapPos, wireOrientation);
-            this.stage.createWires({
+            const created  = this.stage.createWires({
                 ws1: { start: startCP, end: junction,   points: split.firstPoints,  attributes: attrs },
                 ws2: { start: junction, end: endCP,     points: split.secondPoints, attributes: attrs },
             });
+            junction.setThroughWires(created.ws1, created.ws2);
+
+            // Hand the through-wire role on the OUTER junctions to the new sub-wires.
+            if (startInheritor) startInheritor.adoptThroughWire?.(created.ws1);
+            if (endInheritor)   endInheritor.adoptThroughWire?.(created.ws2);
 
             // Mark the junction as provisional so a cancel can remove it
             WireSegmentRenderer.provisionalJunction = junction;
@@ -694,13 +724,14 @@ export class WireSegmentRenderer extends Konva.Group {
     /**
      * Generate an obstacle-aware orthogonal wire path between two port positions.
      *
-     * The routing topology is chosen based on the TRUE exit direction of each port
-     * after accounting for block rotation (0°/90°/180°/270°):
+     * The routing topology is chosen based on the TRUE exit direction of each endpoint
+     * after accounting for block rotation (0°/90°/180°/270°).  Junctions use stub=0
+     * so they turn immediately; the same routing rules apply to both ports and junctions:
      *
-     *   H→H natural forward (right→left, ax≤bx): 4-pt H-V-H with obstacle-shifted midX.
-     *   H→H other (backward / same dir):          6-pt H-V-H-V-H with obstacle-shifted midY.
-     *   V→V natural forward (down→up,  ay≤by):    4-pt V-H-V with obstacle-shifted midY.
-     *   V→V other:                                 6-pt V-H-V-H-V with obstacle-shifted midX.
+     *   H→H natural forward (right→left, ax≤bx): H-V-H with obstacle-shifted midX.
+     *   H→H other (backward / same dir):          H-V-H-V-H with obstacle-shifted midY.
+     *   V→V natural forward (down→up,  ay≤by):    V-H-V with obstacle-shifted midY.
+     *   V→V other:                                 V-H-V-H-V with obstacle-shifted midX.
      *   H→V or V→H:                                L-shape (single turn).
      *
      * Collinear intermediate points are removed so the result is always minimal.
@@ -727,30 +758,14 @@ export class WireSegmentRenderer extends Konva.Group {
         const allRects  = (this.stage?.blocks ?? [])
             .map(b => this._blockRect(b)).filter(Boolean);
 
-        const startIsJunction = startCP?.params?.type === 'cp';
-        const endIsJunction   = endCP?.params?.type   === 'cp';
         const startH = startDir === 'right' || startDir === 'left';
         const endH   = endDir   === 'right' || endDir   === 'left';
 
         let inner;
         if (startH && endH) {
-            if (startIsJunction || endIsJunction) {
-                // Single-knee L: corner chosen so the wire arrives at the block port
-                // parallel to the port's axis.
-                // junction→H port: corner at (jx, port_y)  →  [ax, by]
-                // H port→junction: corner at (jx, port_y)  →  [bx, ay]
-                inner = startIsJunction ? [ax, by] : [bx, ay];
-            } else {
-                inner = this._routeHH(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
-            }
+            inner = this._routeHH(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
         } else if (!startH && !endH) {
-            if (startIsJunction || endIsJunction) {
-                // junction→V port: corner at (port_x, jy)  →  [bx, ay]
-                // V port→junction: corner at (port_x, jy)  →  [ax, by]
-                inner = startIsJunction ? [bx, ay] : [ax, by];
-            } else {
-                inner = this._routeVV(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
-            }
+            inner = this._routeVV(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
         } else if (startH) {
             // Horizontal start, vertical end → L-shape: go to bx first, then down/up to by
             inner = [bx, ay];
@@ -763,59 +778,45 @@ export class WireSegmentRenderer extends Konva.Group {
     }
 
     /**
-     * Actual exit direction of a port in world space, accounting for block rotation.
-     *   Output at 0° → right.  Rotated CW N×90° → right/down/left/up.
-     *   Input  at 0° → left.   Same rotation sequence.
-     *   Null CP (temp wire preview) → 'left'  (treats cursor as an input).
-     *   Junction (type 'cp')        → direction away from otherPos so the
-     *                                 stub points toward the other end.
+     * Actual exit direction of a port in world space.
+     *
+     *   Block port — derived from input/output type and the block's rotation
+     *                (0°/90°/180°/270° CW).
+     *   Junction   — through-wires exit ALONG the parent orientation;
+     *                branch wires exit PERPENDICULAR to it.  This is the
+     *                deterministic Simulink rule and removes the angle
+     *                heuristic that used to misclassify boundary cases.
+     *   Null CP    — live wire preview; treated as an input.
      */
     _portExitDir(cp, otherPos = null) {
         const type = cp?.params?.type;
 
-        // Null: the wire end hasn't been connected yet (live preview).
-        // Treat it as an input port so output→cursor routing is natural.
         if (!cp) return 'left';
 
-        // Junction: exit perpendicular to the wire it sits on so the branch
-        // visually "taps" the wire rather than running along it.
-        // Exception: if the other endpoint is nearly co-linear with the junction's
-        // wire direction (|ratio| < 0.5, i.e. within ~27° of the wire axis), it is
-        // a through-segment wire — let it exit along the wire as before.
-        // When no orientation is stored (legacy / dragged off original wire),
-        // fall back to the old direction-toward-other-end behaviour.
         if (type === 'cp') {
             const jPos    = cp.getPositions();
             const wireOri = cp._wireOrientation;
 
-            if (!otherPos) {
-                // No target yet (initial stub on start()). Use perpendicular default.
-                if (wireOri === 'h') return 'down';
-                if (wireOri === 'v') return 'right';
-                return 'right';
-            }
+            // Identify which side of the wire we're on (for sign of the exit).
+            // For an initial preview with no otherPos, default to a sensible side.
+            const dx = otherPos ? otherPos.x - jPos.x : 1;
+            const dy = otherPos ? otherPos.y - jPos.y : 1;
 
-            const dx  = otherPos.x - jPos.x;
-            const dy  = otherPos.y - jPos.y;
-            const adx = Math.abs(dx);
-            const ady = Math.abs(dy);
+            // Is THIS wire one of the junction's through-wires?
+            const isThrough = typeof cp.isThroughWire === 'function'
+                              && cp.isThroughWire(this.owner);
 
             if (wireOri === 'h') {
-                // Junction on a horizontal wire.
-                // Through-wires go nearly horizontally (|dy| < |dx| * 0.5).
-                // Anything else (branch wires, diagonal) exits vertically.
-                if (adx > 0 && ady < adx * 0.5) return dx >= 0 ? 'right' : 'left';
+                if (isThrough) return dx >= 0 ? 'right' : 'left';
                 return dy >= 0 ? 'down' : 'up';
             }
             if (wireOri === 'v') {
-                // Junction on a vertical wire.
-                // Through-wires go nearly vertically (|dx| < |dy| * 0.5).
-                // Everything else exits horizontally.
-                if (ady > 0 && adx < ady * 0.5) return dy >= 0 ? 'down' : 'up';
+                if (isThrough) return dy >= 0 ? 'down' : 'up';
                 return dx >= 0 ? 'right' : 'left';
             }
 
-            // No stored orientation — original behaviour.
+            // Junction with no recorded orientation (legacy / unsplit) —
+            // fall back to direction-toward-other-end.
             return Math.abs(dx) >= Math.abs(dy)
                 ? (dx >= 0 ? 'right' : 'left')
                 : (dy >= 0 ? 'down'  : 'up');

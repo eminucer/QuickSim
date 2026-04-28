@@ -98,6 +98,8 @@ export class Stage {
 
         ws1.connect2(wires.ws1.start, wires.ws1.end);
         ws2.connect2(wires.ws2.start, wires.ws2.end);
+
+        return { ws1, ws2 };
     }
 
     /* ──────────────────────────────────────

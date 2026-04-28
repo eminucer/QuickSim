@@ -54,9 +54,11 @@ export class DefaultBlockRenderer extends Konva.Group {
                 return selectedBlocks.has(cp.owner);
             };
 
-            // Update wires: translate internal wires rigidly, re-route boundary wires
-            const processedWires    = new Set();
-            const junctionsToOptimize = new Set();
+            // Update wires: translate internal wires rigidly, re-route boundary wires.
+            // Through-wires of a junction are handled atomically: updateOnDrag
+            // delegates to the junction's reflowParentPath, which re-routes the
+            // entire conceptual parent path and re-snaps the junction onto it.
+            const processedWires = new Set();
 
             const processWire = (wire, fromCP) => {
                 if (processedWires.has(wire)) return;
@@ -70,11 +72,10 @@ export class DefaultBlockRenderer extends Konva.Group {
                     // updates remain valid after the group drag.
                     wire.renderer.translateAll(dx, dy);
                 } else {
-                    // One end crosses the boundary → re-anchor from the selected end
+                    // One end crosses the boundary → re-anchor from the selected end.
+                    // If the other end is a junction, updateOnDrag delegates to
+                    // junction.reflowParentPath (handled inside the renderer).
                     wire.updateOnDrag(fromCP);
-                    // If the far end is a junction, its wires may now overlap —
-                    // schedule a split-point optimisation after all wires are updated
-                    if (otherCP?.params?.type === 'cp') junctionsToOptimize.add(otherCP);
                 }
             };
 
@@ -89,9 +90,6 @@ export class DefaultBlockRenderer extends Konva.Group {
             selectedJunctions.forEach(junction => {
                 junction.wires.forEach(wire => processWire(wire, junction));
             });
-
-            // Relocate any junction whose wires now share an initial segment
-            junctionsToOptimize.forEach(j => j._optimizeSplitPoint?.());
 
             // Keep selection bounds rect in sync
             if (this.stage._updateSelectionBounds) this.stage._updateSelectionBounds();

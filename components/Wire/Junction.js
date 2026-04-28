@@ -1,18 +1,32 @@
 import { WireSegment } from './WireSegment.js';
 
 /**
- * A branch point placed on an existing wire.
+ * A branch point attached to a parent wire path.
  *
- * The original wire is left untouched.  The Junction is an independent node
- * with a draggable world position that can accept any number of wires.
+ * Topology
+ * ────────
+ * A junction owns two "through" sub-wires (`_throughWires`) — together they
+ * form the conceptual single parent wire that the junction was placed on.
+ * All other wires attached to the junction are "branch" wires.
  *
- * UX:
- *   • Right-click a wire   → snaps a Junction dot to the nearest point.
- *   • Click junction        → select it (Delete key removes it).
- *   • Click again (selected)→ start a new branch wire from it.
- *   • Click junction (while drawing wire) → finish the wire here.
- *   • Drag junction         → move it; all attached wires re-route live.
- *   • Right-click junction  → context menu: Delete branch point.
+ * Invariants
+ * ──────────
+ *   • The junction always lies on a segment of the parent path.
+ *   • `_wireOrientation` matches the orientation ('h' / 'v') of that segment.
+ *   • Through wires exit the junction along the parent orientation.
+ *   • Branch wires exit perpendicular to the parent orientation.
+ *
+ * Block movement
+ * ──────────────
+ * When a block on the far end of a through wire moves, we re-route the entire
+ * conceptual parent path as ONE wire (start far port → end far port), then snap
+ * the junction to its closest point on that new path and split into the two
+ * sub-wires.  Branch wires are then re-routed from the junction's new position.
+ *
+ * User drag
+ * ─────────
+ * Dragging the junction projects the cursor onto the parent path's segments
+ * and slides the junction along it.  It cannot drift off the parent.
  */
 export class Junction {
     constructor(stageObj, worldPos, wireOrientation = null) {
@@ -21,12 +35,14 @@ export class Junction {
         this.owner             = null;             // not owned by a block
         this.isConnected       = false;            // always accepts more connections
         this.wires             = [];               // every wire attached here
+        this._throughWires     = [];               // the 2 sub-wires forming the parent path
         this.wire              = null;             // last wire (ConnectionPoint compat)
         this._pos              = { x: worldPos.x, y: worldPos.y };
         this._dragMoved        = false;
         this._deleting         = false;            // re-entry guard for deletion cascades
+        this._reflowing        = false;            // re-entry guard for parent-path reflow
         this._branchWire       = null;             // the wire that caused this junction to be created
-        this._wireOrientation  = wireOrientation;  // 'h' or 'v' — orientation of the wire snapped onto
+        this._wireOrientation  = wireOrientation;  // 'h' or 'v' — orientation of parent segment at J
         this.renderer          = this._buildRenderer();
     }
 
@@ -58,29 +74,27 @@ export class Junction {
             dot.getLayer()?.batchDraw();
         });
 
-        // Track whether the pointer moved during this press so we can
-        // suppress the click handler after a drag.
         dot.on('dragstart', () => { this._dragMoved = false; });
         dot.on('dragmove',  () => {
             this._dragMoved = true;
+            // Free-follow the cursor mid-drag (snapping the dot here would fight
+            // Konva's internal drag-offset).  Route every wire from the current
+            // free position so the user sees live feedback; we'll snap onto the
+            // parent path at dragend.
             this._pos.x = dot.x();
             this._pos.y = dot.y();
-            this.wires.forEach(w => w?.updateOnDrag(this));
+            this._routeWiresFromCurrentPosition();
             this.stage.wireLayer?.batchDraw();
         });
-        // Reset after drag so the next click isn't mistakenly suppressed.
-        // Konva already suppresses `click` during a drag, so resetting here
-        // is safe — the click handler only fires for genuine clicks.
         dot.on('dragend', () => {
             this._dragMoved = false;
-            // After the drag settles, relocate to the split point if any wires overlap.
-            // Done here (not in dragmove) to avoid fighting Konva's internal drag-offset.
-            this._optimizeSplitPoint();
+            // Snap the junction back onto the parent path and re-split so the
+            // through-wires are clean and the junction's invariant holds again.
+            this._resplitParentAtJunction();
+            this._updateBranchWires();
             this.stage.wireLayer?.batchDraw();
         });
 
-        // click fires only when the pointer didn't drag (Konva suppresses it
-        // after a real drag), so it's safe to use for select / wire actions.
         dot.on('click', e => {
             e.cancelBubble = true;
             if (this._dragMoved) { this._dragMoved = false; return; }
@@ -136,45 +150,339 @@ export class Junction {
         return { x: this._pos.x, y: this._pos.y };
     }
 
-    /** Accept any number of wires — does NOT set isConnected. */
+    /** Accept any number of wires. */
     assignWire(wire) {
         if (!this.wires.includes(wire)) this.wires.push(wire);
         this.wire = wire;
     }
 
     /**
+     * Mark the two sub-wires that form this junction's parent path.
+     * Called once at junction creation time, and again whenever a sub-wire is
+     * replaced (e.g. nested junction split).
+     */
+    setThroughWires(w1, w2) {
+        this._throughWires = [w1, w2].filter(Boolean);
+    }
+
+    /** True if `wire` is one of this junction's through (parent-path) wires. */
+    isThroughWire(wire) {
+        return this._throughWires.includes(wire);
+    }
+
+    /**
+     * Promote `wire` to a through-wire role.  Used after a nested split or a
+     * merge inside the parent path, where a freshly-created sub-wire inherits
+     * the role of the wire it replaced.
+     */
+    adoptThroughWire(wire) {
+        if (!wire) return;
+        if (!this._throughWires.includes(wire)) this._throughWires.push(wire);
+        // Cap at 2; the one that's also still in this.wires takes precedence
+        if (this._throughWires.length > 2) {
+            this._throughWires = this._throughWires.filter(w => this.wires.includes(w)).slice(-2);
+        }
+    }
+
+    /**
      * Remove a wire from this junction's list WITHOUT triggering any auto-cleanup.
-     * Used during split operations where a replacement wire will be assigned immediately
-     * after, so the junction should never be merged or destroyed mid-operation.
      */
     detachWire(wire) {
         const idx = this.wires.indexOf(wire);
         if (idx >= 0) this.wires.splice(idx, 1);
+        const ti = this._throughWires.indexOf(wire);
+        if (ti >= 0) this._throughWires.splice(ti, 1);
         if (this.wire === wire) this.wire = this.wires[this.wires.length - 1] ?? null;
     }
 
-    /**
-     * Called when a block on the OTHER end of one of our wires is dragged.
-     * Re-route all wires attached to this junction so the whole fan stays tidy.
-     */
+    /** Re-route every wire after a structural change. */
     updateWiresOnDrag() {
         this.wires.forEach(w => w?.updateOnDrag(this));
     }
 
     /** Called when a wire is deleted so it removes itself from our list. */
     removeWire(wire) {
-        if (this._deleting) return; // deletion cascade in progress — don't recurse
+        if (this._deleting) return;
         const idx = this.wires.indexOf(wire);
         if (idx >= 0) this.wires.splice(idx, 1);
+        const ti = this._throughWires.indexOf(wire);
+        if (ti >= 0) this._throughWires.splice(ti, 1);
         if (this.wire === wire) this.wire = this.wires[this.wires.length - 1] ?? null;
 
-        // Auto-cleanup: once only 2 wires remain, the junction is a pure
-        // passthrough — merge those two wires and delete it.
-        if (this.wires.length === 2) {
+        // Auto-cleanup: passthrough junction (only the two through-wires left
+        // and no branches) → merge them back into a single wire.
+        if (this.wires.length === 2 && this._throughWires.length === 2) {
             this._mergeAndDelete();
         } else if (this.wires.length === 0) {
             this._destroySelf();
         }
+    }
+
+    /* ═══════════════════════════════════════
+       PARENT-PATH RE-FLOW
+    ═══════════════════════════════════════ */
+
+    /**
+     * Re-route the conceptual parent wire (farCP1 → farCP2) as a single path,
+     * snap the junction onto it, re-split into the two through-wires, and
+     * refresh all branch wires.  Returns true on success.
+     *
+     * Called when a far-end port of a through-wire moves.
+     */
+    reflowParentPath() {
+        if (this._reflowing || this._deleting) return false;
+        if (this._throughWires.length !== 2)   return false;
+
+        const [w1, w2] = this._throughWires;
+        const farCP1 = this._farEndOf(w1);
+        const farCP2 = this._farEndOf(w2);
+        if (!farCP1 || !farCP2) return false;
+
+        this._reflowing = true;
+        try {
+            const sample = w1.renderer ?? w2.renderer;
+            if (!sample) return false;
+
+            const startPos = farCP1.getPositions();
+            const endPos   = farCP2.getPositions();
+            const flat     = sample._getWirePoints(startPos, endPos, farCP1, farCP2);
+            const pts      = this._toPointObjects(flat);
+            if (pts.length < 2) return false;
+
+            // Project the junction's current position onto the new parent path.
+            const proj = this._projectOntoPath(pts, this._pos);
+            if (!proj) return false;
+
+            const oldX = this._pos.x, oldY = this._pos.y;
+            this._pos.x = proj.point.x;
+            this._pos.y = proj.point.y;
+            this.renderer?.x(proj.point.x);
+            this.renderer?.y(proj.point.y);
+
+            // Orientation = orientation of the segment containing the junction.
+            const a = pts[proj.segIdx], b = pts[proj.segIdx + 1];
+            const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+            this._wireOrientation = dx >= dy ? 'h' : 'v';
+
+            // Split path at the junction and assign each half to its through-wire,
+            // ordered so each wire's existing start/end CPs still match.
+            this._applyPathSplit(pts, proj, w1, w2, farCP1, farCP2);
+
+            // Only re-route branches if the junction's world position actually
+            // moved.  If projection landed it back at the same coordinate, the
+            // branch source hasn't moved and its wire must stay untouched.
+            const moved = Math.abs(this._pos.x - oldX) > 0.5
+                       || Math.abs(this._pos.y - oldY) > 0.5;
+            if (moved) this._updateBranchWires();
+            return true;
+        } finally {
+            this._reflowing = false;
+        }
+    }
+
+    /**
+     * Lighter version of reflowParentPath used when the user drags the junction.
+     * The parent path's far ports haven't moved, so we just re-split the existing
+     * path at the (already-snapped) junction position.
+     */
+    _resplitParentAtJunction() {
+        if (this._throughWires.length !== 2) return;
+
+        const [w1, w2] = this._throughWires;
+        const farCP1 = this._farEndOf(w1);
+        const farCP2 = this._farEndOf(w2);
+        if (!farCP1 || !farCP2) return;
+
+        const sample = w1.renderer ?? w2.renderer;
+        if (!sample) return;
+
+        const startPos = farCP1.getPositions();
+        const endPos   = farCP2.getPositions();
+        const flat     = sample._getWirePoints(startPos, endPos, farCP1, farCP2);
+        const pts      = this._toPointObjects(flat);
+        if (pts.length < 2) return;
+
+        // Snap junction onto the freshly routed parent path so the drag never
+        // produces an off-path position.
+        const proj = this._projectOntoPath(pts, this._pos);
+        if (!proj) return;
+        this._pos.x = proj.point.x;
+        this._pos.y = proj.point.y;
+        this.renderer?.x(proj.point.x);
+        this.renderer?.y(proj.point.y);
+
+        const a = pts[proj.segIdx], b = pts[proj.segIdx + 1];
+        const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+        this._wireOrientation = dx >= dy ? 'h' : 'v';
+
+        this._applyPathSplit(pts, proj, w1, w2, farCP1, farCP2);
+    }
+
+    /** Slide branch wires from the junction's new position. */
+    _updateBranchWires() {
+        this.wires.forEach(w => {
+            if (this._throughWires.includes(w)) return;
+            // Branch wires never preserve user-locked geometry across a junction
+            // move — the branch source is, by definition, moving.
+            if (w?.renderer) w.renderer._userPts = null;
+            w?.updateOnDrag(this);
+        });
+    }
+
+    /**
+     * Live-route every attached wire (through and branch) from the junction's
+     * current `_pos`, without invoking the parent-path reflow.  Used during the
+     * user's free-drag of the junction dot, where we want immediate visual
+     * feedback while Konva still owns the cursor.
+     */
+    _routeWiresFromCurrentPosition() {
+        this.wires.forEach(wire => {
+            const r = wire?.renderer;
+            if (!r || !wire.cps?.start || !wire.cps?.end) return;
+            r._userPts = null;
+            const startPos = wire.cps.start.getPositions();
+            const endPos   = wire.cps.end.getPositions();
+            const points   = r._getWirePoints(startPos, endPos, wire.cps.start, wire.cps.end);
+            r._pts = r._toPointObjects(points);
+            if (r.wire) r.wire.points(points);
+        });
+    }
+
+    /** Refresh `_wireOrientation` from the current through-wire geometry. */
+    _refreshOrientationFromParent() {
+        const seg = this._segmentContainingJunction();
+        if (!seg) return;
+        const dx = Math.abs(seg.b.x - seg.a.x), dy = Math.abs(seg.b.y - seg.a.y);
+        this._wireOrientation = dx >= dy ? 'h' : 'v';
+    }
+
+    /**
+     * Find the segment of the union-of-through-wires path that the junction is
+     * currently on (by closest projection).  Returns { a, b } or null.
+     */
+    _segmentContainingJunction() {
+        const pts = this._collectParentPathPoints();
+        if (!pts || pts.length < 2) return null;
+        const proj = this._projectOntoPath(pts, this._pos);
+        if (!proj) return null;
+        return { a: pts[proj.segIdx], b: pts[proj.segIdx + 1] };
+    }
+
+    /**
+     * Snap an arbitrary world position to the closest point on the parent path.
+     * Returns the projected point or null when no parent path exists.
+     */
+    _snapToParentPath(worldPos) {
+        const pts = this._collectParentPathPoints();
+        if (!pts || pts.length < 2) return null;
+        const proj = this._projectOntoPath(pts, worldPos);
+        return proj?.point ?? null;
+    }
+
+    /**
+     * Build the full parent path point list by stitching the two through-wires'
+     * current points together at the junction.  Returns null if not stitchable.
+     */
+    _collectParentPathPoints() {
+        if (this._throughWires.length !== 2) return null;
+        const [w1, w2] = this._throughWires;
+        const p1 = w1?.renderer?._pts;
+        const p2 = w2?.renderer?._pts;
+        if (!p1 || !p2 || p1.length < 2 || p2.length < 2) return null;
+
+        const EPS = 0.5;
+        const isAtJ = pt => Math.abs(pt.x - this._pos.x) < EPS && Math.abs(pt.y - this._pos.y) < EPS;
+
+        // Reverse each wire so it ENDS at the junction
+        const a = isAtJ(p1[p1.length - 1]) ? p1
+                : isAtJ(p1[0])              ? [...p1].reverse()
+                : null;
+        // And the other STARTS at the junction
+        const b = isAtJ(p2[0])              ? p2
+                : isAtJ(p2[p2.length - 1])  ? [...p2].reverse()
+                : null;
+        if (!a || !b) return null;
+
+        // Concatenate: a[...j], j, b[j...]  (skip duplicate junction point)
+        return [...a.slice(0, -1), ...b];
+    }
+
+    /**
+     * Project `pos` onto a path (array of {x,y}).  Returns
+     *   { point: {x,y}, segIdx, t }
+     * where segIdx is the segment index and t is the parametric position along it.
+     */
+    _projectOntoPath(pts, pos) {
+        let best = null;
+        for (let i = 0; i < pts.length - 1; i++) {
+            const a = pts[i], b = pts[i + 1];
+            const abx = b.x - a.x, aby = b.y - a.y;
+            const len2 = abx * abx + aby * aby;
+            if (len2 === 0) continue;
+            let t = ((pos.x - a.x) * abx + (pos.y - a.y) * aby) / len2;
+            t = Math.max(0, Math.min(1, t));
+            const px = a.x + t * abx, py = a.y + t * aby;
+            const d2 = (px - pos.x) ** 2 + (py - pos.y) ** 2;
+            if (!best || d2 < best.d2) best = { d2, point: { x: px, y: py }, segIdx: i, t };
+        }
+        return best;
+    }
+
+    /**
+     * Split `pts` at the projection point and assign the two halves to the
+     * through-wires, oriented so each wire's existing start/end CPs are honored.
+     */
+    _applyPathSplit(pts, proj, w1, w2, farCP1, farCP2) {
+        const j = proj.point;
+        const firstHalf  = [...pts.slice(0, proj.segIdx + 1), j];
+        const secondHalf = [j, ...pts.slice(proj.segIdx + 1)];
+        // Drop a degenerate split point if it duplicates a neighbour
+        const cleanFirst  = this._dropDuplicate(firstHalf);
+        const cleanSecond = this._dropDuplicate(secondHalf);
+        const flatFirst   = this._toFlatPoints(cleanFirst);
+        const flatSecond  = this._toFlatPoints(cleanSecond);
+
+        // Match each half to the correct through-wire.  farCP1 is w1's far end;
+        // if w1.cps.start === farCP1, then w1 reads start→junction = firstHalf.
+        const assignWire = (wire, farCP, halfFlat) => {
+            const r = wire.renderer;
+            if (!r) return;
+            r._userPts = null; // freshly routed — no manual override survives
+            const points = wire.cps.start === farCP ? halfFlat : this._reverseFlatPoints(halfFlat);
+            r._pts = this._toPointObjects(points);
+            if (r.wire) r.wire.points(points);
+        };
+        assignWire(w1, farCP1, flatFirst);
+        assignWire(w2, farCP2, flatSecond);
+    }
+
+    _farEndOf(wire) {
+        if (!wire?.cps) return null;
+        return wire.cps.start === this ? wire.cps.end : wire.cps.start;
+    }
+
+    _toPointObjects(flat) {
+        const pts = [];
+        for (let i = 0; i < flat.length; i += 2) pts.push({ x: flat[i], y: flat[i + 1] });
+        return pts;
+    }
+    _toFlatPoints(pts) { return pts.flatMap(p => [p.x, p.y]); }
+    _reverseFlatPoints(flat) {
+        const out = new Array(flat.length);
+        for (let i = 0; i < flat.length; i += 2) {
+            out[flat.length - 2 - i]     = flat[i];
+            out[flat.length - 2 - i + 1] = flat[i + 1];
+        }
+        return out;
+    }
+    _dropDuplicate(pts) {
+        if (pts.length < 2) return pts;
+        const out = [pts[0]];
+        for (let i = 1; i < pts.length; i++) {
+            const p = out[out.length - 1], c = pts[i];
+            if (Math.abs(p.x - c.x) > 0.5 || Math.abs(p.y - c.y) > 0.5) out.push(c);
+        }
+        return out;
     }
 
     /**
@@ -186,13 +494,11 @@ export class Junction {
         this._deleting = true;
 
         const [wire1, wire2] = this.wires;
-        // The "other" endpoint is whichever side isn't the junction itself
-        const cp1 = wire1.cps.start === this ? wire1.cps.end : wire1.cps.start;
-        const cp2 = wire2.cps.start === this ? wire2.cps.end : wire2.cps.start;
+        const cp1 = this._farEndOf(wire1);
+        const cp2 = this._farEndOf(wire2);
 
         if (!cp1 || !cp2) { this._destroySelf(); return; }
 
-        // Don't merge incompatible port types (e.g. input↔input)
         const t1 = cp1.params?.type, t2 = cp2.params?.type;
         if ((t1 === 'input'  && t2 === 'input') ||
             (t1 === 'output' && t2 === 'output')) {
@@ -200,14 +506,14 @@ export class Junction {
             return;
         }
 
-        // Compute merged geometry BEFORE destroying anything
         const cp1Pos = cp1.getPositions(), cp2Pos = cp2.getPositions();
         const points = wire1.renderer._getWirePoints(cp1Pos, cp2Pos, cp1, cp2);
         const attrs  = { stroke: '#334155', strokeWidth: 2, dash: [], lineCap: 'round', lineJoin: 'round' };
 
-        // Disconnect wire1 from cp1. If cp1 is itself a junction, use detachWire
-        // (not removeWire) so that removing this wire doesn't trigger cp1's own
-        // auto-merge — the replacement merged wire will be assigned to cp1 right after.
+        // Capture through-wire roles so the merged wire can inherit them
+        const cp1WasThrough = cp1?.params?.type === 'cp' && cp1.isThroughWire?.(wire1);
+        const cp2WasThrough = cp2?.params?.type === 'cp' && cp2.isThroughWire?.(wire2);
+
         if (typeof cp1.detachWire === 'function') cp1.detachWire(wire1);
         else { cp1.wire = null; cp1.isConnected = false; }
         wire1.cps.start = null; wire1.cps.end = null;
@@ -215,7 +521,6 @@ export class Junction {
         if (si1 !== -1) this.stage.selectedItems.splice(si1, 1);
         wire1.renderer.fullDelete();
 
-        // Disconnect wire2 from cp2 (same logic as cp1 above)
         if (typeof cp2.detachWire === 'function') cp2.detachWire(wire2);
         else { cp2.wire = null; cp2.isConnected = false; }
         wire2.cps.start = null; wire2.cps.end = null;
@@ -224,82 +529,18 @@ export class Junction {
         wire2.renderer.fullDelete();
 
         this.wires = [];
+        this._throughWires = [];
         this.wire  = null;
 
-        // Create the merged wire and connect it
         const mergedWire = new WireSegment(this.stage, { points, attributes: attrs });
         this.stage.add(mergedWire);
         mergedWire.connect2(cp1, cp2);
 
+        // Propagate the through-wire role to the merged wire.
+        if (cp1WasThrough) cp1.adoptThroughWire?.(mergedWire);
+        if (cp2WasThrough) cp2.adoptThroughWire?.(mergedWire);
+
         this._destroySelf();
-    }
-
-    /**
-     * If 2+ wires from this junction share an initial collinear segment, relocate
-     * the junction to the split (divergence) point and re-route all wires from
-     * there.  Repeats until stable so ladder-split cases converge.
-     * Called after a block drag updates a wire that terminates here.
-     */
-    _optimizeSplitPoint() {
-        const EPS = 0.5;
-        const isAtJ = (pt, j) => Math.abs(pt.x - j.x) < EPS && Math.abs(pt.y - j.y) < EPS;
-
-        for (let pass = 0; pass < 5; pass++) {
-            const jPos = this.getPositions();
-
-            // Normalise each wire's point list so it starts from J
-            const paths = this.wires.map(wire => {
-                const pts = wire.renderer?._pts;
-                if (!pts || pts.length < 2) return null;
-                if (isAtJ(pts[0], jPos))               return pts;
-                if (isAtJ(pts[pts.length - 1], jPos))  return [...pts].reverse();
-                return null;
-            }).filter(Boolean);
-
-            if (paths.length < 2) break;
-
-            // Group by initial exit direction, recording first-segment extent
-            const groups = { right: [], left: [], down: [], up: [] };
-            for (const path of paths) {
-                if (path.length < 2) continue;
-                const p0 = path[0], p1 = path[1];
-                const dx = p1.x - p0.x, dy = p1.y - p0.y;
-                const adx = Math.abs(dx), ady = Math.abs(dy);
-                if (adx < EPS && ady < EPS) continue;
-                if (adx >= ady) groups[dx > 0 ? 'right' : 'left'].push(adx);
-                else            groups[dy > 0 ? 'down'  : 'up'  ].push(ady);
-            }
-
-            // Find a direction where 2+ wires overlap
-            const entry = Object.entries(groups).find(([, exts]) => exts.length >= 2);
-            if (!entry) break; // no overlap — done
-
-            const [dir, exts] = entry;
-            const minExt = Math.min(...exts);
-            if (minExt < 1) break;
-
-            // Move junction to the split point
-            const newX = dir === 'right' ? jPos.x + minExt
-                       : dir === 'left'  ? jPos.x - minExt : jPos.x;
-            const newY = dir === 'down'  ? jPos.y + minExt
-                       : dir === 'up'    ? jPos.y - minExt : jPos.y;
-
-            this._pos.x           = newX;
-            this._pos.y           = newY;
-            this._wireOrientation = null; // free branch point — no axis constraint
-            this.renderer.x(newX);
-            this.renderer.y(newY);
-
-            // Re-route all wires from the new position so next pass sees fresh paths.
-            // Seed _userPts for wires that were never manually dragged so that
-            // only the junction-end stub stretches instead of fully re-routing.
-            this.wires.forEach(w => {
-                if (w?.renderer && w.renderer._pts && !w.renderer._userPts) {
-                    w.renderer._userPts = w.renderer._pts.map(p => ({ x: p.x, y: p.y }));
-                }
-                w?.updateOnDrag(this);
-            });
-        }
     }
 
     /** Remove the junction's Konva node and stage reference without touching wires. */
@@ -325,10 +566,9 @@ export class Junction {
         if (this._deleting) return;
         this._deleting = true;
 
-        // Delete all connected wires; the _deleting guard prevents removeWire
-        // callbacks from triggering re-entrant cleanup.
         [...this.wires].forEach(w => w?.delete?.());
         this.wires = [];
+        this._throughWires = [];
         this.wire  = null;
 
         this._destroySelf();
