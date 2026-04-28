@@ -732,7 +732,8 @@ export class WireSegmentRenderer extends Konva.Group {
      *   H→H other (backward / same dir):          H-V-H-V-H with obstacle-shifted midY.
      *   V→V natural forward (down→up,  ay≤by):    V-H-V with obstacle-shifted midY.
      *   V→V other:                                 V-H-V-H-V with obstacle-shifted midX.
-     *   H→V or V→H:                                L-shape (single turn).
+     *   H→V or V→H natural:                        L-shape (single turn).
+     *   H→V or V→H degenerate / blocked:           H-V-H-V (or V-H-V-H) detour.
      *
      * Collinear intermediate points are removed so the result is always minimal.
      */
@@ -767,11 +768,9 @@ export class WireSegmentRenderer extends Konva.Group {
         } else if (!startH && !endH) {
             inner = this._routeVV(ax, ay, bx, by, startDir, endDir, obstacles, allRects, GAP);
         } else if (startH) {
-            // Horizontal start, vertical end → L-shape: go to bx first, then down/up to by
-            inner = [bx, ay];
+            inner = this._routeHV(ax, ay, bx, by, startDir, endDir, obstacles, GAP, STUB);
         } else {
-            // Vertical start, horizontal end → L-shape: go to by first, then across to bx
-            inner = [ax, by];
+            inner = this._routeVH(ax, ay, bx, by, startDir, endDir, obstacles, GAP, STUB);
         }
 
         return this._cleanPath([sx, sy, ax, ay, ...inner, bx, by, ex, ey]);
@@ -874,6 +873,71 @@ export class WireSegmentRenderer extends Konva.Group {
             obstacles, gap,
         );
         return [midX, ay, midX, by];
+    }
+
+    /**
+     * Route between an H-stub start and a V-stub end.
+     *
+     * Natural L: corner at (bx, ay) — H from a, then V into b.  Used only when
+     * both inner segments are non-degenerate, in the correct direction relative
+     * to startDir/endDir, AND clear of obstacles.  Otherwise falls back to a
+     * 4-segment H-V-H-V detour with corners (m, ay), (m, n), (bx, n), where m
+     * sits stub-distance past ax in startDir and n sits stub-distance past by
+     * on the side facing the wire (so the last V segment flows naturally into
+     * the end stub instead of being absorbed by _cleanPath).
+     */
+    _routeHV(ax, ay, bx, by, startDir, endDir, obstacles, gap, stub) {
+        const xSign = startDir === 'right' ? 1 : -1;
+        const ySign = endDir   === 'up'    ? 1 : -1;
+        const xOK = (bx - ax) * xSign > 0.5;
+        const yOK = (by - ay) * ySign > 0.5;
+
+        if (xOK && yOK) {
+            const xLo = Math.min(ax, bx), xHi = Math.max(ax, bx);
+            const yLo = Math.min(ay, by), yHi = Math.max(ay, by);
+            const rects   = obstacles.map(b => this._blockRect(b)).filter(Boolean);
+            const hClear  = !rects.some(r => this._hSegHits(ay, xLo, xHi, r, gap));
+            const vClear  = !rects.some(r => this._vSegHits(bx, yLo, yHi, r, gap));
+            if (hClear && vClear) return [bx, ay];
+        }
+
+        let m = ax + xSign * stub;
+        if (Math.abs(m - bx) < 1) m += xSign * stub;
+
+        let n = by - ySign * stub;
+        if (Math.abs(n - ay) < 1) n -= ySign * stub;
+
+        return [m, ay, m, n, bx, n];
+    }
+
+    /**
+     * Route between a V-stub start and an H-stub end.  Mirror of _routeHV.
+     *
+     * Natural L: corner at (ax, by).  Detour: V-H-V-H with corners (ax, n),
+     * (m, n), (m, by).
+     */
+    _routeVH(ax, ay, bx, by, startDir, endDir, obstacles, gap, stub) {
+        const ySign = startDir === 'down' ? 1 : -1;
+        const xSign = endDir   === 'left' ? 1 : -1;
+        const yOK = (by - ay) * ySign > 0.5;
+        const xOK = (bx - ax) * xSign > 0.5;
+
+        if (xOK && yOK) {
+            const xLo = Math.min(ax, bx), xHi = Math.max(ax, bx);
+            const yLo = Math.min(ay, by), yHi = Math.max(ay, by);
+            const rects  = obstacles.map(b => this._blockRect(b)).filter(Boolean);
+            const vClear = !rects.some(r => this._vSegHits(ax, yLo, yHi, r, gap));
+            const hClear = !rects.some(r => this._hSegHits(by, xLo, xHi, r, gap));
+            if (vClear && hClear) return [ax, by];
+        }
+
+        let n = ay + ySign * stub;
+        if (Math.abs(n - by) < 1) n += ySign * stub;
+
+        let m = bx - xSign * stub;
+        if (Math.abs(m - ax) < 1) m -= xSign * stub;
+
+        return [ax, n, m, n, m, by];
     }
 
     /**
